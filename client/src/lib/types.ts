@@ -4,7 +4,7 @@ export interface Log {
   originalContent: string;
   uploadedAt: Date;
   fileSize: number;
-  processingStatus: 'pending' | 'processing' | 'completed' | 'error';
+  processingStatus: 'pending' | 'processing' | 'completed' | 'completed_without_vectors' | 'error';
 }
 
 export interface Issue {

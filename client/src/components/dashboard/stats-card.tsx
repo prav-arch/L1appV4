@@ -7,6 +7,7 @@ interface StatsCardProps {
   icon: LucideIcon;
   className?: string;
   iconClassName?: string;
+  isLoading?: boolean;
   trend?: {
     value: number;
     increasing: boolean;
@@ -19,6 +20,7 @@ export function StatsCard({
   icon: Icon,
   className,
   iconClassName,
+  isLoading = false,
   trend
 }: StatsCardProps) {
   return (
@@ -29,9 +31,16 @@ export function StatsCard({
         </div>
         <div className="ml-4">
           <h3 className="text-sm font-medium text-slate-500">{title}</h3>
-          <p className="text-2xl font-semibold">{value}</p>
           
-          {trend && (
+          {isLoading ? (
+            <div className="h-8 flex items-center">
+              <div className="h-2 w-16 bg-slate-200 rounded animate-pulse"></div>
+            </div>
+          ) : (
+            <p className="text-2xl font-semibold">{value}</p>
+          )}
+          
+          {!isLoading && trend && (
             <div className="flex items-center mt-1">
               <span className={cn(
                 "text-xs",

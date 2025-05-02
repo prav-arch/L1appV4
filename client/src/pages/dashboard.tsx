@@ -32,7 +32,7 @@ export default function Dashboard() {
   // Only fetch analysis if a log is selected
   const analysisQuery = useQuery({
     queryKey: ['/api/logs', selectedLog?.id, 'analysis'],
-    queryFn: () => selectedLog ? getAnalysisResult(selectedLog.id) : Promise.resolve(null),
+    queryFn: () => selectedLog ? getAnalysisResult(selectedLog.id) : Promise.resolve(undefined),
     enabled: !!selectedLog
   });
   
@@ -52,7 +52,7 @@ export default function Dashboard() {
       return sortedLogs[0];
     }
     
-    return null;
+    return undefined;
   };
   
   return (

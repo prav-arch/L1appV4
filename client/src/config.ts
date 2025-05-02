@@ -17,15 +17,15 @@ export const config = {
   
   // LLM service configuration
   llm: {
-    inferenceUrl: process.env.LLM_INFERENCE_URL || 'http://localhost:8080/v1/completions',
-    embeddingUrl: process.env.LLM_EMBEDDING_URL || 'http://localhost:8080/v1/embeddings',
+    inferenceUrl: import.meta.env.LLM_INFERENCE_URL || 'http://localhost:8080/v1/completions',
+    embeddingUrl: import.meta.env.LLM_EMBEDDING_URL || 'http://localhost:8080/v1/embeddings',
     model: 'mistral-7b'
   },
   
   // Milvus configuration
   milvus: {
-    host: process.env.MILVUS_HOST || 'localhost',
-    port: process.env.MILVUS_PORT || '19530'
+    host: import.meta.env.MILVUS_HOST || 'localhost',
+    port: import.meta.env.MILVUS_PORT || '19530'
   }
 };
 
