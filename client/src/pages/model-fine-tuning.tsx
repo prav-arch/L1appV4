@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Spinner } from '@/components/ui/spinner';
+import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
 import { useForm } from 'react-hook-form';
 import { 
@@ -52,6 +53,21 @@ interface FineTuningJob {
   output_model_name: string;
   metrics: Record<string, any>;
   config: Record<string, any>;
+  progress?: {
+    current_epoch: number;
+    total_epochs: number;
+    current_step: number;
+    total_steps: number;
+    percentage_complete: number;
+    estimated_time_remaining: string;
+    loss: number | null;
+    example_count: number;
+    last_updated: string;
+  };
+  logs?: Array<{
+    timestamp: string;
+    message: string;
+  }>;
 }
 
 interface FineTunedModel {
@@ -257,6 +273,35 @@ export default function ModelFineTuning() {
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleString();
+  };
+  
+  // Render progress component
+  const renderProgress = (job: FineTuningJob) => {
+    // If no progress or not running, show a simple indicator
+    if (!job.progress || job.status !== 'running') {
+      return (
+        <div className="text-sm text-slate-500">
+          {job.status === 'completed' ? 'Completed' : 
+           job.status === 'failed' ? 'Failed' : 
+           job.status === 'pending' ? 'Pending' : 'N/A'}
+        </div>
+      );
+    }
+    
+    // Show detailed progress for running jobs
+    return (
+      <div className="space-y-1 w-full max-w-[200px]">
+        <div className="flex justify-between text-xs mb-1">
+          <span>{job.progress.percentage_complete}% complete</span>
+          <span>{job.progress.current_epoch}/{job.progress.total_epochs} epochs</span>
+        </div>
+        <Progress value={job.progress.percentage_complete} className="h-2" />
+        <div className="flex justify-between text-xs text-slate-500 mt-1">
+          <span>Loss: {job.progress.loss?.toFixed(4) || 'N/A'}</span>
+          <span>ETA: {job.progress.estimated_time_remaining}</span>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -482,6 +527,7 @@ export default function ModelFineTuning() {
                           <TableHead>ID</TableHead>
                           <TableHead>Dataset</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead>Progress</TableHead>
                           <TableHead>Created</TableHead>
                           <TableHead>Completed</TableHead>
                           <TableHead className="text-right">Actions</TableHead>

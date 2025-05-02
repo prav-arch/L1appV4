@@ -6,6 +6,9 @@ import os
 import json
 import logging
 import datetime
+import threading
+import time
+import random
 from pathlib import Path
 
 # Set up logging
@@ -165,6 +168,15 @@ class LLMFineTuningService:
         if config:
             job_config.update(config)
         
+        # Load dataset to get example count
+        try:
+            with open(dataset_file, 'r') as f:
+                dataset = json.load(f)
+                example_count = len(dataset)
+        except Exception as e:
+            logger.error(f"Error reading dataset: {str(e)}")
+            example_count = 0
+        
         # Create the job information
         job_info = {
             "id": job_id,
@@ -176,7 +188,24 @@ class LLMFineTuningService:
             "started_at": None,
             "completed_at": None,
             "output_model_name": f"{model_name}_ft_{job_id}",
-            "metrics": {}
+            "metrics": {},
+            "progress": {
+                "current_epoch": 0,
+                "total_epochs": job_config.get("num_train_epochs", 3),
+                "current_step": 0,
+                "total_steps": example_count * job_config.get("num_train_epochs", 3),
+                "percentage_complete": 0,
+                "estimated_time_remaining": "Unknown",
+                "loss": None,
+                "example_count": example_count,
+                "last_updated": datetime.datetime.now().isoformat()
+            },
+            "logs": [
+                {
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "message": "Job created and queued for processing"
+                }
+            ]
         }
         
         # Add the job to the list of jobs
@@ -191,9 +220,125 @@ class LLMFineTuningService:
         # Simulate starting the job
         job_info["status"] = "running"
         job_info["started_at"] = datetime.datetime.now().isoformat()
+        job_info["logs"].append({
+            "timestamp": datetime.datetime.now().isoformat(),
+            "message": "Fine-tuning process started"
+        })
         self._save_jobs()
         
+        # Start a background thread to simulate job progress
+        if not os.environ.get("DISABLE_SIMULATED_PROGRESS", False):
+            threading.Thread(target=self._simulate_job_progress, args=(job_id,)).start()
+        
         return job_info
+        
+    def _simulate_job_progress(self, job_id: str) -> None:
+        """
+        Simulate progress updates for a fine-tuning job (for development purposes)
+        
+        Args:
+            job_id: ID of the fine-tuning job
+        """
+        job = self.get_fine_tuning_job(job_id)
+        if not job:
+            return
+            
+        # Get total steps and epochs for simulation
+        total_epochs = job["progress"]["total_epochs"]
+        total_steps = job["progress"]["total_steps"]
+        example_count = job["progress"]["example_count"]
+        
+        # Simulate progress over time
+        for epoch in range(1, total_epochs + 1):
+            if job["status"] != "running":
+                # Job may have been cancelled or failed
+                break
+                
+            # Update epoch progress
+            job["progress"]["current_epoch"] = epoch
+            job["logs"].append({
+                "timestamp": datetime.datetime.now().isoformat(),
+                "message": f"Starting epoch {epoch}/{total_epochs}"
+            })
+            
+            # Simulate steps within the epoch
+            steps_per_epoch = total_steps // total_epochs if total_epochs > 0 else 100
+            for step in range(1, steps_per_epoch + 1):
+                time.sleep(0.1)  # Simulate processing time
+                
+                # Check if job is still running
+                current_job = self.get_fine_tuning_job(job_id)
+                if not current_job or current_job["status"] != "running":
+                    return
+                
+                # Calculate overall progress
+                current_step = (epoch - 1) * steps_per_epoch + step
+                percentage = min(99, int((current_step / total_steps) * 100)) if total_steps > 0 else 0
+                
+                # Simulate decreasing loss
+                base_loss = 0.5 - (0.4 * (current_step / total_steps)) if total_steps > 0 else 0.1
+                random_factor = random.uniform(-0.05, 0.05)
+                current_loss = max(0.05, base_loss + random_factor)
+                
+                # Update progress metrics
+                job["progress"]["current_step"] = current_step
+                job["progress"]["percentage_complete"] = percentage
+                job["progress"]["loss"] = round(current_loss, 4)
+                job["progress"]["last_updated"] = datetime.datetime.now().isoformat()
+                
+                # Calculate estimated time remaining
+                elapsed_time = (datetime.datetime.now() - datetime.datetime.fromisoformat(job["started_at"])).total_seconds()
+                if current_step > 0:
+                    time_per_step = elapsed_time / current_step
+                    steps_remaining = total_steps - current_step
+                    eta_seconds = time_per_step * steps_remaining
+                    
+                    # Format time remaining
+                    if eta_seconds < 60:
+                        eta = f"{int(eta_seconds)} seconds"
+                    elif eta_seconds < 3600:
+                        eta = f"{int(eta_seconds / 60)} minutes"
+                    else:
+                        eta = f"{int(eta_seconds / 3600)} hours, {int((eta_seconds % 3600) / 60)} minutes"
+                    
+                    job["progress"]["estimated_time_remaining"] = eta
+                
+                # Add log entries at key points
+                if step == 1 or step % (steps_per_epoch // 4) == 0 or step == steps_per_epoch:
+                    job["logs"].append({
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "message": f"Epoch {epoch}/{total_epochs}, Step {step}/{steps_per_epoch}, Loss: {current_loss:.4f}"
+                    })
+                
+                # Save progress
+                self._save_jobs()
+        
+        # Complete the job
+        job["status"] = "completed"
+        job["completed_at"] = datetime.datetime.now().isoformat()
+        job["progress"]["percentage_complete"] = 100
+        job["progress"]["current_epoch"] = total_epochs
+        job["progress"]["current_step"] = total_steps
+        job["progress"]["estimated_time_remaining"] = "0 seconds"
+        
+        # Add final metrics
+        job["metrics"] = {
+            "train_loss": job["progress"]["loss"],
+            "eval_loss": max(0.05, job["progress"]["loss"] * random.uniform(0.9, 1.1)),
+            "train_runtime": (datetime.datetime.fromisoformat(job["completed_at"]) - 
+                             datetime.datetime.fromisoformat(job["started_at"])).total_seconds(),
+            "train_samples_per_second": example_count / ((datetime.datetime.fromisoformat(job["completed_at"]) - 
+                                                      datetime.datetime.fromisoformat(job["started_at"])).total_seconds()),
+            "epoch": float(total_epochs)
+        }
+        
+        # Add completion log
+        job["logs"].append({
+            "timestamp": datetime.datetime.now().isoformat(),
+            "message": f"Fine-tuning completed successfully. Final loss: {job['metrics']['train_loss']:.4f}"
+        })
+        
+        self._save_jobs()
     
     def get_fine_tuning_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """
