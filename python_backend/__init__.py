@@ -1,2 +1,1 @@
-# Telecom Log Analysis Application
-# Python backend package
+# This file is intentionally left empty

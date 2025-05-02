@@ -1,281 +1,286 @@
-import { useState } from "react";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from "@/components/ui/table";
-import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardHeader, 
-  CardTitle 
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { AlertTriangle, CheckCircle, ExternalLink, HelpCircle, Info } from "lucide-react";
-
-import type { Issue, Recommendation } from "@/lib/types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import { Book, CheckCircle, ExternalLink, FileText, Link2, Zap } from "lucide-react";
+import { useState } from "react";
+import { Issue, Recommendation } from "@/lib/types";
 
 interface IssuesRecommendationsTableProps {
   issues: Issue[];
   recommendations: Recommendation[];
-  className?: string;
   isLoading?: boolean;
+  className?: string;
 }
 
-export function IssuesRecommendationsTable({ 
-  issues, 
-  recommendations, 
-  className,
-  isLoading = false
+export function IssuesRecommendationsTable({
+  issues,
+  recommendations,
+  isLoading = false,
+  className
 }: IssuesRecommendationsTableProps) {
-  const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
-  
-  // Filter recommendations that are relevant to the selected issue
-  const getRelevantRecommendations = () => {
-    if (!selectedIssue) return [];
-    
-    // In a real implementation, recommendations would be linked to issues
-    // Here we're doing a simple relevance check based on severity
-    return recommendations.filter(rec => {
-      if (selectedIssue.severity === 'high') {
-        // For high severity issues, show all recommendations
-        return true;
-      } else if (selectedIssue.severity === 'medium') {
-        // For medium issues, show recommendations only from certain categories
-        return ['configuration', 'monitoring', 'network'].includes(rec.category);
-      } else {
-        // For low severity, show only configuration recommendations
-        return rec.category === 'configuration';
-      }
-    });
+  const [activeTab, setActiveTab] = useState<string>("issues");
+  const [selectedItem, setSelectedItem] = useState<Issue | Recommendation | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
+
+  const openDetails = (item: Issue | Recommendation) => {
+    setSelectedItem(item);
+    setDetailsOpen(true);
   };
-  
-  // Render severity badge with appropriate color
-  const renderSeverityBadge = (severity: string) => {
-    switch (severity.toLowerCase()) {
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
       case 'high':
-        return <Badge variant="destructive">{severity}</Badge>;
+        return 'bg-red-100 text-red-800';
       case 'medium':
-        return <Badge variant="outline" className="bg-amber-500 text-white border-amber-500">{severity}</Badge>;
+        return 'bg-amber-100 text-amber-800';
       case 'low':
+        return 'bg-green-100 text-green-800';
       default:
-        return <Badge variant="outline">{severity}</Badge>;
+        return 'bg-slate-100 text-slate-800';
     }
   };
-  
-  // Render status badge
-  const renderStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
       case 'fixed':
-        return <Badge variant="outline" className="bg-green-500 text-white border-green-500">{status}</Badge>;
+        return 'bg-green-100 text-green-800';
       case 'in_progress':
-        return <Badge variant="secondary" className="bg-blue-500 text-white">{status}</Badge>;
+        return 'bg-blue-100 text-blue-800';
       case 'pending':
+        return 'bg-slate-100 text-slate-800';
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return 'bg-slate-100 text-slate-800';
     }
   };
-  
-  // Render category badge
-  const renderCategoryBadge = (category: string) => {
-    switch (category.toLowerCase()) {
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
       case 'configuration':
-        return <Badge variant="outline" className="border-blue-500 text-blue-700">{category}</Badge>;
+        return 'bg-purple-100 text-purple-800';
       case 'monitoring':
-        return <Badge variant="outline" className="border-purple-500 text-purple-700">{category}</Badge>;
+        return 'bg-blue-100 text-blue-800';
       case 'authentication':
-        return <Badge variant="outline" className="border-amber-500 text-amber-700">{category}</Badge>;
+        return 'bg-amber-100 text-amber-800';
       case 'network':
-        return <Badge variant="outline" className="border-green-500 text-green-700">{category}</Badge>;
+        return 'bg-teal-100 text-teal-800';
       default:
-        return <Badge variant="outline">{category}</Badge>;
+        return 'bg-slate-100 text-slate-800';
     }
   };
-  
-  // Function to get icon based on severity
-  const getSeverityIcon = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case 'high':
-        return <AlertTriangle className="h-5 w-5 text-red-500" />;
-      case 'medium':
-        return <Info className="h-5 w-5 text-amber-500" />;
-      case 'low':
-      default:
-        return <HelpCircle className="h-5 w-5 text-blue-500" />;
-    }
+
+  const renderIssueDetails = (issue: Issue) => {
+    return (
+      <>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 font-semibold">
+            <FileText className="h-5 w-5" />
+            {issue.title}
+          </DialogTitle>
+          <div className="flex items-center gap-2 mt-1">
+            <Badge variant="outline" className={getSeverityColor(issue.severity)}>
+              {issue.severity} severity
+            </Badge>
+            <Badge variant="outline" className={getStatusColor(issue.status)}>
+              {issue.status.replace('_', ' ')}
+            </Badge>
+          </div>
+          <DialogDescription className="mt-4">
+            First occurred: {issue.firstOccurrence}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="mt-4">
+          <h4 className="text-sm font-medium mb-2">Description</h4>
+          <p className="text-sm text-slate-600">{issue.description}</p>
+        </div>
+      </>
+    );
   };
-  
-  if (isLoading) {
+
+  const renderRecommendationDetails = (rec: Recommendation) => {
     return (
-      <Card className={className}>
-        <CardHeader>
-          <CardTitle>Issues & Recommendations</CardTitle>
-          <CardDescription>Loading analysis results...</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="h-60 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 font-semibold">
+            <Zap className="h-5 w-5" />
+            {rec.title}
+          </DialogTitle>
+          <div className="flex items-center gap-2 mt-1">
+            <Badge variant="outline" className={getCategoryColor(rec.category)}>
+              {rec.category}
+            </Badge>
+            {rec.isAutomaticallyResolved && (
+              <Badge variant="outline" className="bg-green-100 text-green-800">
+                auto-resolved
+              </Badge>
+            )}
           </div>
-        </CardContent>
-      </Card>
+        </DialogHeader>
+        <div className="mt-4">
+          <h4 className="text-sm font-medium mb-2">Description</h4>
+          <p className="text-sm text-slate-600">{rec.description}</p>
+          
+          {rec.documentationLink && (
+            <div className="mt-4">
+              <Button variant="outline" size="sm" className="gap-2" asChild>
+                <a href={rec.documentationLink} target="_blank" rel="noopener noreferrer">
+                  <Book className="h-4 w-4" />
+                  <span>View Documentation</span>
+                  <ExternalLink className="h-3 w-3 ml-1" />
+                </a>
+              </Button>
+            </div>
+          )}
+        </div>
+      </>
     );
-  }
-  
-  if (issues.length === 0) {
+  };
+
+  const renderLoadingSkeleton = () => {
     return (
-      <Card className={className}>
-        <CardHeader>
-          <CardTitle>Issues & Recommendations</CardTitle>
-          <CardDescription>No issues detected in analyzed logs</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="h-60 flex flex-col items-center justify-center text-center">
-            <CheckCircle className="h-16 w-16 text-green-500 mb-4" />
-            <h3 className="text-xl font-medium text-gray-900">All Clear</h3>
-            <p className="text-gray-500 mt-2">
-              No issues were detected in the analyzed logs. The system appears to be functioning normally.
-            </p>
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center p-3 border rounded-md animate-pulse">
+            <div className="h-4 w-4 bg-slate-200 rounded-full mr-3"></div>
+            <div className="flex-1 space-y-2">
+              <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+              <div className="h-3 bg-slate-200 rounded w-1/2"></div>
+            </div>
+            <div className="h-6 w-16 bg-slate-200 rounded ml-3"></div>
           </div>
-        </CardContent>
-      </Card>
+        ))}
+      </div>
     );
-  }
-  
+  };
+
   return (
-    <Card className={className}>
+    <Card className={cn("", className)}>
       <CardHeader>
         <CardTitle>Issues & Recommendations</CardTitle>
-        <CardDescription>Detected issues and AI-generated recommendations</CardDescription>
+        <CardDescription>
+          Issues detected in logs and recommended actions for resolution
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="overflow-hidden rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[300px]">Issue</TableHead>
-                <TableHead>First Occurrence</TableHead>
-                <TableHead>Severity</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {issues.map((issue, index) => (
-                <TableRow key={index}>
-                  <TableCell className="font-medium">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-4">
+            <TabsTrigger value="issues" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              <span>Issues</span>
+              <Badge variant="secondary" className="ml-1 rounded-full">
+                {issues.length}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="recommendations" className="flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              <span>Recommendations</span>
+              <Badge variant="secondary" className="ml-1 rounded-full">
+                {recommendations.length}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="issues">
+            {isLoading ? (
+              renderLoadingSkeleton()
+            ) : issues.length > 0 ? (
+              <div className="space-y-2">
+                {issues.map((issue, index) => (
+                  <div 
+                    key={index} 
+                    className="flex items-center justify-between p-3 border rounded-md hover:bg-slate-50 transition-colors"
+                  >
                     <div className="flex items-center">
-                      {getSeverityIcon(issue.severity)}
-                      <span className="ml-2">{issue.title}</span>
+                      <Badge variant="outline" className={getSeverityColor(issue.severity)}>
+                        {issue.severity}
+                      </Badge>
+                      <div className="ml-3">
+                        <h4 className="text-sm font-medium">{issue.title}</h4>
+                        <p className="text-xs text-slate-500 truncate max-w-[300px]">
+                          {issue.description}
+                        </p>
+                      </div>
                     </div>
-                  </TableCell>
-                  <TableCell>{issue.firstOccurrence}</TableCell>
-                  <TableCell>{renderSeverityBadge(issue.severity)}</TableCell>
-                  <TableCell>{renderStatusBadge(issue.status)}</TableCell>
-                  <TableCell className="text-right">
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => setSelectedIssue(issue)}
-                        >
-                          View Recommendations
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-4xl">
-                        <DialogHeader>
-                          <DialogTitle>Issue Details & Recommendations</DialogTitle>
-                          <DialogDescription>
-                            GenAI analysis and recommendations for resolving this issue
-                          </DialogDescription>
-                        </DialogHeader>
-                        
-                        <div className="grid gap-6 py-4">
-                          {/* Issue details */}
-                          <div className="rounded-lg border bg-card p-4">
-                            <h3 className="text-lg font-semibold flex items-center">
-                              {getSeverityIcon(selectedIssue?.severity || 'low')}
-                              <span className="ml-2">{selectedIssue?.title}</span>
-                              {renderSeverityBadge(selectedIssue?.severity || 'low')}
-                            </h3>
-                            <p className="mt-2 text-sm text-muted-foreground">{selectedIssue?.description}</p>
-                            <div className="flex mt-4 text-sm text-muted-foreground">
-                              <div className="mr-4"><strong>First Occurred:</strong> {selectedIssue?.firstOccurrence}</div>
-                              <div><strong>Status:</strong> {renderStatusBadge(selectedIssue?.status || 'pending')}</div>
-                            </div>
-                          </div>
-                          
-                          {/* Recommendations */}
-                          <div>
-                            <h3 className="font-semibold mb-3">GenAI Recommendations</h3>
-                            
-                            <ScrollArea className="h-[300px] rounded-md border p-4">
-                              {getRelevantRecommendations().length > 0 ? (
-                                <div className="space-y-6">
-                                  {getRelevantRecommendations().map((rec, idx) => (
-                                    <div key={idx} className="rounded-lg bg-accent/50 p-4">
-                                      <div className="flex items-center justify-between">
-                                        <h4 className="font-medium">{rec.title}</h4>
-                                        {renderCategoryBadge(rec.category)}
-                                      </div>
-                                      <p className="mt-2 text-sm">{rec.description}</p>
-                                      
-                                      {rec.documentationLink && (
-                                        <>
-                                          <Separator className="my-3" />
-                                          <a 
-                                            href={rec.documentationLink} 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="text-sm text-blue-600 flex items-center hover:underline"
-                                          >
-                                            View Documentation
-                                            <ExternalLink className="ml-1 h-3 w-3" />
-                                          </a>
-                                        </>
-                                      )}
-                                      
-                                      {rec.isAutomaticallyResolved && (
-                                        <div className="mt-3 flex items-center text-sm text-green-600">
-                                          <CheckCircle className="mr-1 h-4 w-4" />
-                                          This issue can be automatically resolved
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="py-8 text-center text-muted-foreground">
-                                  No specific recommendations for this issue
-                                </div>
-                              )}
-                            </ScrollArea>
-                          </div>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className={getStatusColor(issue.status)}>
+                        {issue.status.replace('_', ' ')}
+                      </Badge>
+                      <Button size="sm" variant="ghost" onClick={() => openDetails(issue)}>
+                        Details
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8">
+                <CheckCircle className="h-10 w-10 text-green-500 mb-2" />
+                <h3 className="text-lg font-medium">No Issues Found</h3>
+                <p className="text-sm text-slate-500">
+                  No issues were detected in the analyzed logs
+                </p>
+              </div>
+            )}
+          </TabsContent>
+          
+          <TabsContent value="recommendations">
+            {isLoading ? (
+              renderLoadingSkeleton()
+            ) : recommendations.length > 0 ? (
+              <div className="space-y-2">
+                {recommendations.map((rec, index) => (
+                  <div 
+                    key={index} 
+                    className="flex items-center justify-between p-3 border rounded-md hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <Badge variant="outline" className={getCategoryColor(rec.category)}>
+                        {rec.category}
+                      </Badge>
+                      <div className="ml-3">
+                        <h4 className="text-sm font-medium">{rec.title}</h4>
+                        <p className="text-xs text-slate-500 truncate max-w-[300px]">
+                          {rec.description}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {rec.isAutomaticallyResolved && (
+                        <Badge variant="outline" className="bg-green-100 text-green-800">
+                          auto-resolved
+                        </Badge>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => openDetails(rec)}>
+                        Details
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8">
+                <CheckCircle className="h-10 w-10 text-green-500 mb-2" />
+                <h3 className="text-lg font-medium">No Recommendations</h3>
+                <p className="text-sm text-slate-500">
+                  No recommendations are available at this time
+                </p>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </CardContent>
+
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          {selectedItem && ('severity' in selectedItem) ? 
+            renderIssueDetails(selectedItem as Issue) : 
+            selectedItem && renderRecommendationDetails(selectedItem as Recommendation)
+          }
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -1,6 +1,5 @@
-from datetime import datetime
-import json
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta
 
 class MemStorage:
     """In-memory storage for the application data"""
@@ -8,19 +7,18 @@ class MemStorage:
     def __init__(self):
         """Initialize storage with empty data structures"""
         self.users = {}
-        self.logs_data = {}
-        self.analysis_results_data = {}
-        self.embeddings_data = {}
-        self.activities_data = {}
+        self.logs = {}
+        self.analysis_results = {}
+        self.embeddings = {}
+        self.activities = {}
         
-        # Current IDs for auto-increment
-        self.user_current_id = 0
-        self.log_current_id = 0
-        self.analysis_result_current_id = 0
-        self.embedding_current_id = 0
-        self.activity_current_id = 0
+        # Counters for IDs
+        self.user_id_counter = 1
+        self.log_id_counter = 1
+        self.analysis_id_counter = 1
+        self.embedding_id_counter = 1
+        self.activity_id_counter = 1
     
-    # User methods
     def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
         """Get user by ID"""
         return self.users.get(user_id)
@@ -28,156 +26,187 @@ class MemStorage:
     def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
         """Get user by username"""
         for user in self.users.values():
-            if user['username'] == username:
+            if user["username"] == username:
                 return user
         return None
     
     def create_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new user"""
-        self.user_current_id += 1
+        user_id = self.user_id_counter
+        self.user_id_counter += 1
+        
         user = {
-            "id": self.user_current_id,
+            "id": user_id,
+            "createdAt": datetime.now(),
             **user_data
         }
-        self.users[self.user_current_id] = user
+        
+        self.users[user_id] = user
         return user
     
-    # Log methods
     def create_log(self, log_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new log entry"""
-        self.log_current_id += 1
-        now = datetime.now().isoformat()
+        log_id = self.log_id_counter
+        self.log_id_counter += 1
         
         log = {
-            "id": self.log_current_id,
-            **log_data,
-            "uploadedAt": now,
-            "processingStatus": "pending"
+            "id": log_id,
+            "uploadedAt": datetime.now(),
+            **log_data
         }
-        self.logs_data[self.log_current_id] = log
+        
+        self.logs[log_id] = log
         return log
     
     def get_log(self, log_id: int) -> Optional[Dict[str, Any]]:
         """Get log by ID"""
-        return self.logs_data.get(log_id)
+        return self.logs.get(log_id)
     
     def get_all_logs(self) -> List[Dict[str, Any]]:
         """Get all logs"""
-        return list(self.logs_data.values())
+        logs = list(self.logs.values())
+        logs.sort(key=lambda x: x["uploadedAt"], reverse=True)
+        
+        # Convert uploadedAt to ISO format string for JSON serialization
+        for log in logs:
+            log["uploadedAt"] = log["uploadedAt"].isoformat()
+        
+        return logs
     
     def update_log_status(self, log_id: int, status: str) -> Optional[Dict[str, Any]]:
         """Update log processing status"""
-        log = self.logs_data.get(log_id)
+        log = self.logs.get(log_id)
         if not log:
             return None
-            
-        updated_log = {
-            **log,
-            "processingStatus": status
-        }
-        self.logs_data[log_id] = updated_log
-        return updated_log
+        
+        log["processingStatus"] = status
+        return log
     
-    # Analysis methods
     def create_analysis_result(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new analysis result"""
-        self.analysis_result_current_id += 1
-        now = datetime.now().isoformat()
+        result_id = self.analysis_id_counter
+        self.analysis_id_counter += 1
         
         result = {
-            "id": self.analysis_result_current_id,
-            **result_data,
-            "analysisDate": now
+            "id": result_id,
+            "analysisDate": datetime.now(),
+            **result_data
         }
-        self.analysis_results_data[self.analysis_result_current_id] = result
+        
+        self.analysis_results[result_id] = result
         return result
     
     def get_analysis_result(self, result_id: int) -> Optional[Dict[str, Any]]:
         """Get analysis result by ID"""
-        return self.analysis_results_data.get(result_id)
+        result = self.analysis_results.get(result_id)
+        if result:
+            # Convert date to ISO format for JSON serialization
+            result = result.copy()
+            result["analysisDate"] = result["analysisDate"].isoformat()
+        return result
     
     def get_analysis_result_by_log_id(self, log_id: int) -> Optional[Dict[str, Any]]:
         """Get analysis result by log ID"""
-        for result in self.analysis_results_data.values():
-            if result['logId'] == log_id:
+        for result in self.analysis_results.values():
+            if result["logId"] == log_id:
+                # Convert date to ISO format for JSON serialization
+                result = result.copy()
+                result["analysisDate"] = result["analysisDate"].isoformat()
                 return result
         return None
     
     def update_resolution_status(self, result_id: int, status: str) -> Optional[Dict[str, Any]]:
         """Update resolution status of an analysis result"""
-        result = self.analysis_results_data.get(result_id)
+        result = self.analysis_results.get(result_id)
         if not result:
             return None
-            
-        updated_result = {
-            **result,
-            "resolutionStatus": status
-        }
-        self.analysis_results_data[result_id] = updated_result
-        return updated_result
+        
+        result["resolutionStatus"] = status
+        
+        # Convert date to ISO format for JSON serialization
+        result_copy = result.copy()
+        result_copy["analysisDate"] = result_copy["analysisDate"].isoformat()
+        
+        return result_copy
     
-    # Embedding methods
     def create_embedding(self, embedding_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new embedding entry"""
-        self.embedding_current_id += 1
+        embedding_id = self.embedding_id_counter
+        self.embedding_id_counter += 1
         
         embedding = {
-            "id": self.embedding_current_id,
+            "id": embedding_id,
+            "createdAt": datetime.now(),
             **embedding_data
         }
-        self.embeddings_data[self.embedding_current_id] = embedding
+        
+        self.embeddings[embedding_id] = embedding
         return embedding
     
     def get_embeddings_by_log_id(self, log_id: int) -> List[Dict[str, Any]]:
         """Get embeddings by log ID"""
-        return [
-            embedding for embedding in self.embeddings_data.values()
-            if embedding['logId'] == log_id
-        ]
+        embeddings = []
+        for embedding in self.embeddings.values():
+            if embedding["logId"] == log_id:
+                # Convert date to ISO format for JSON serialization
+                embedding_copy = embedding.copy()
+                embedding_copy["createdAt"] = embedding_copy["createdAt"].isoformat()
+                embeddings.append(embedding_copy)
+        return embeddings
     
-    # Activity methods
     def create_activity(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new activity record"""
-        self.activity_current_id += 1
-        now = datetime.now().isoformat()
+        activity_id = self.activity_id_counter
+        self.activity_id_counter += 1
         
         activity = {
-            "id": self.activity_current_id,
-            **activity_data,
-            "timestamp": now
+            "id": activity_id,
+            "timestamp": datetime.now(),
+            **activity_data
         }
-        self.activities_data[self.activity_current_id] = activity
+        
+        self.activities[activity_id] = activity
         return activity
     
     def get_recent_activities(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent activities"""
-        activities = list(self.activities_data.values())
-        activities.sort(key=lambda x: x['timestamp'], reverse=True)
-        return activities[:limit]
+        activities = list(self.activities.values())
+        activities.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        # Convert timestamps to ISO format for JSON serialization
+        activities_copy = []
+        for activity in activities[:limit]:
+            activity_copy = activity.copy()
+            activity_copy["timestamp"] = activity_copy["timestamp"].isoformat()
+            activities_copy.append(activity_copy)
+        
+        return activities_copy
     
-    # Dashboard methods
     def get_stats(self) -> Dict[str, Any]:
         """Get dashboard statistics"""
-        # Count analyzed logs
-        analyzed_logs = sum(
-            1 for log in self.logs_data.values()
-            if log['processingStatus'] in ['completed', 'completed_without_vectors']
-        )
+        # Count logs that have been fully analyzed (completed or completed_without_vectors)
+        analyzed_logs = sum(1 for log in self.logs.values() 
+                         if log["processingStatus"] in ["completed", "completed_without_vectors"])
         
-        # Count resolved issues
-        issues_resolved = sum(
-            1 for result in self.analysis_results_data.values()
-            if result['resolutionStatus'] == 'resolved'
-        )
+        # Count resolved and pending issues
+        issues_resolved = 0
+        pending_issues = 0
         
-        # Count pending issues
-        pending_issues = sum(
-            1 for result in self.analysis_results_data.values()
-            if result['resolutionStatus'] in ['pending', 'in_progress']
-        )
+        for result in self.analysis_results.values():
+            if result["resolutionStatus"] == "resolved":
+                # Count all issues in resolved analysis as resolved
+                issues_resolved += len(result["issues"])
+            else:
+                # Count individual issues based on their status
+                for issue in result["issues"]:
+                    if issue["status"] == "fixed":
+                        issues_resolved += 1
+                    else:
+                        pending_issues += 1
         
-        # Average resolution time (simplified)
-        avg_resolution_time = "2.5 days"  # Placeholder
+        # Calculate average resolution time (mock data)
+        # In a real implementation, this would compare timestamps of upload and resolution
+        avg_resolution_time = "6h 24m"
         
         return {
             "analyzedLogs": analyzed_logs,

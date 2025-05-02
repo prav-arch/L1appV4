@@ -1,27 +1,31 @@
 import os
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+import threading
+
+# Import services
 from services.storage import MemStorage
-from services.milvus_service import MilvusService
-from services.llm_service import LLMService
 from services.log_parser import LogParser
+from services.llm_service import LLMService
+from services.milvus_service import MilvusService
 
 # Load environment variables
 load_dotenv()
 
-# Initialize app
+# Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Initialize services
 storage = MemStorage()
-milvus_service = MilvusService()
-llm_service = LLMService()
 log_parser = LogParser()
+llm_service = LLMService()
+milvus_service = MilvusService()
 
-# Maximum file size (10MB)
-MAX_FILE_SIZE = 10 * 1024 * 1024
+# Background processing tasks
+processing_tasks = {}
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
@@ -30,79 +34,61 @@ def get_stats():
         stats = storage.get_stats()
         return jsonify(stats)
     except Exception as e:
-        app.logger.error(f"Error fetching stats: {str(e)}")
-        return jsonify({"message": "Failed to fetch statistics"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/activities', methods=['GET'])
 def get_activities():
     """Get recent activities"""
     try:
-        limit = int(request.args.get('limit', 10))
+        limit = request.args.get('limit', default=10, type=int)
         activities = storage.get_recent_activities(limit)
         return jsonify(activities)
     except Exception as e:
-        app.logger.error(f"Error fetching activities: {str(e)}")
-        return jsonify({"message": "Failed to fetch activities"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/logs/upload', methods=['POST'])
 def upload_log():
     """Upload a log file for analysis"""
     try:
         if 'file' not in request.files:
-            return jsonify({"message": "No file uploaded"}), 400
-
+            return jsonify({"error": "No file provided"}), 400
+        
         file = request.files['file']
         if not file.filename:
-            return jsonify({"message": "No file selected"}), 400
-
-        # Check file extension
-        allowed_extensions = ['.log', '.txt', '.xml', '.json']
-        ext = os.path.splitext(file.filename)[1].lower()
-        if ext not in allowed_extensions:
-            return jsonify({"message": "Invalid file type. Only .log, .txt, .xml, and .json are allowed."}), 400
-
-        # Check file size
-        file_content = file.read()
-        if len(file_content) > MAX_FILE_SIZE:
-            return jsonify({"message": "File too large. Maximum size is 10MB."}), 400
-
-        # Convert to string
-        file_content_str = file_content.decode('utf-8')
-
-        # Basic validation
-        if not log_parser.is_valid_telecom_log(file_content_str):
-            return jsonify({"message": "The uploaded file does not appear to be a valid telecom log"}), 400
-
-        # Save log to storage
-        log = storage.create_log({
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Read file content
+        content = file.read().decode('utf-8')
+        
+        # Validate file is a telecom log
+        if not log_parser.is_valid_telecom_log(content):
+            return jsonify({"error": "Invalid telecom log format"}), 400
+        
+        # Create log record
+        log_data = {
             "filename": file.filename,
-            "originalContent": file_content_str,
-            "fileSize": len(file_content)
-        })
-
+            "originalContent": content,
+            "fileSize": len(content),
+            "processingStatus": "pending"
+        }
+        
+        log = storage.create_log(log_data)
+        
         # Create activity record
-        storage.create_activity({
+        activity_data = {
             "logId": log["id"],
             "activityType": "upload",
-            "description": f"Log file '{log['filename']}' was uploaded",
-            "status": "pending"
-        })
-
+            "description": f"Log '{file.filename}' uploaded",
+            "status": "completed"
+        }
+        storage.create_activity(activity_data)
+        
         # Start processing in background
-        # In a production environment, you'd use Celery, RQ, or another task queue
-        # For simplicity, we'll do it in-process with error handling
-        process_log_file(log["id"], file_content_str)
-
-        return jsonify({
-            "id": log["id"],
-            "filename": log["filename"],
-            "uploadedAt": log["uploadedAt"],
-            "processingStatus": log["processingStatus"]
-        }), 201
-
+        threading.Thread(target=process_log_file, args=(log["id"], content)).start()
+        
+        return jsonify({"id": log["id"]})
     except Exception as e:
-        app.logger.error(f"Error uploading log file: {str(e)}")
-        return jsonify({"message": "Failed to upload log file"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/logs/<int:log_id>', methods=['GET'])
 def get_log(log_id):
@@ -110,11 +96,10 @@ def get_log(log_id):
     try:
         log = storage.get_log(log_id)
         if not log:
-            return jsonify({"message": "Log not found"}), 404
+            return jsonify({"error": "Log not found"}), 404
         return jsonify(log)
     except Exception as e:
-        app.logger.error(f"Error fetching log: {str(e)}")
-        return jsonify({"message": "Failed to fetch log"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
@@ -123,8 +108,7 @@ def get_logs():
         logs = storage.get_all_logs()
         return jsonify(logs)
     except Exception as e:
-        app.logger.error(f"Error fetching logs: {str(e)}")
-        return jsonify({"message": "Failed to fetch logs"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/logs/<int:log_id>/analysis', methods=['GET'])
 def get_analysis(log_id):
@@ -132,11 +116,10 @@ def get_analysis(log_id):
     try:
         analysis = storage.get_analysis_result_by_log_id(log_id)
         if not analysis:
-            return jsonify({"message": "Analysis not found"}), 404
+            return jsonify({"error": "Analysis not found"}), 404
         return jsonify(analysis)
     except Exception as e:
-        app.logger.error(f"Error fetching analysis: {str(e)}")
-        return jsonify({"message": "Failed to fetch analysis"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/search', methods=['POST'])
 def search():
@@ -145,89 +128,58 @@ def search():
         data = request.json
         query = data.get('query')
         
-        if not query or not isinstance(query, str):
-            return jsonify({"message": "Invalid query"}), 400
-
+        if not query:
+            return jsonify({"error": "No query provided"}), 400
+        
+        # Try vector search first
         try:
-            # Generate embedding for the query
-            embedding = llm_service.generate_embedding(query)
+            # Generate embedding for query
+            query_embedding = llm_service.generate_embedding(query)
             
-            # Search for similar log segments
-            search_results = milvus_service.search_similar_text(embedding, 10)
+            # Search for similar content in vector database
+            search_results = milvus_service.search_similar_text(query_embedding)
             
-            if not search_results:
-                return jsonify({
-                    "results": [],
-                    "summary": "No relevant logs found for your query."
-                })
-            
-            # Get log IDs from search results
-            log_ids = list(set(result["logId"] for result in search_results))
-            logs = [storage.get_log(log_id) for log_id in log_ids]
-            logs = [log for log in logs if log]  # Filter out None values
-            
-            # Combine search results with log data
-            results = []
+            # Get log details for results
+            enriched_results = []
             for result in search_results:
-                log = next((log for log in logs if log["id"] == result["logId"]), None)
-                results.append({
+                log = storage.get_log(result["logId"])
+                enriched_results.append({
                     "logId": result["logId"],
-                    "filename": log["filename"] if log else "Unknown log",
+                    "filename": log["filename"] if log else "Unknown",
                     "text": result["text"],
                     "score": result["score"],
-                    "relevance": f"{round(result['score'] * 100)}%"
+                    "relevance": "high" if result["score"] > 0.8 else "medium" if result["score"] > 0.6 else "low"
                 })
             
-            # Generate summary
-            search_texts = "\n\n".join(result["text"] for result in search_results)
-            summary = llm_service.semantic_search(query, search_texts)
+            summary = llm_service.semantic_search(query, [r["text"] for r in search_results])
             
             return jsonify({
-                "results": results,
+                "results": enriched_results,
                 "summary": summary
             })
-            
+        
         except Exception as e:
-            app.logger.error(f"Error with vector search: {str(e)}")
-            
-            # Fallback to basic search
+            # Fall back to basic search if vector search fails
             logs = storage.get_all_logs()
-            
-            # Simple text-based search
-            matching_logs = [log for log in logs if query.lower() in log["originalContent"].lower()]
-            
-            if not matching_logs:
-                return jsonify({
-                    "results": [],
-                    "summary": "No relevant logs found for your query. Note: Vector search is currently unavailable."
-                })
-            
-            # Extract context around matches
             results = []
-            for log in matching_logs:
-                lower_content = log["originalContent"].lower()
-                query_index = lower_content.find(query.lower())
-                
-                start_index = max(0, query_index - 100)
-                end_index = min(len(log["originalContent"]), query_index + len(query) + 100)
-                text = log["originalContent"][start_index:end_index]
-                
-                results.append({
-                    "logId": log["id"],
-                    "filename": log["filename"],
-                    "text": text,
-                    "score": 0.5,
-                    "relevance": "Keyword match"
-                })
+            
+            for log in logs:
+                if query.lower() in log["originalContent"].lower():
+                    results.append({
+                        "logId": log["id"],
+                        "filename": log["filename"],
+                        "text": log["originalContent"][:200] + "...",
+                        "score": 0.5,  # Default score for basic search
+                        "relevance": "medium"
+                    })
             
             return jsonify({
-                "results": results,
-                "summary": "Vector search is currently unavailable. Showing basic keyword search results instead."
+                "results": results[:10],  # Limit to 10 results
+                "summary": f"Found {len(results)} logs containing '{query}'"
             })
-            
+    
     except Exception as e:
-        app.logger.error(f"Error performing search: {str(e)}")
-        return jsonify({"message": "Failed to perform search"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/analysis/<int:analysis_id>/status', methods=['PATCH'])
 def update_status(analysis_id):
@@ -237,24 +189,24 @@ def update_status(analysis_id):
         status = data.get('status')
         
         if not status or status not in ['pending', 'in_progress', 'resolved']:
-            return jsonify({"message": "Invalid status value"}), 400
+            return jsonify({"error": "Invalid status"}), 400
         
-        updated_analysis = storage.update_resolution_status(analysis_id, status)
-        if not updated_analysis:
-            return jsonify({"message": "Analysis not found"}), 404
+        result = storage.update_resolution_status(analysis_id, status)
+        if not result:
+            return jsonify({"error": "Analysis not found"}), 404
         
         # Create activity record
-        storage.create_activity({
-            "logId": updated_analysis["logId"],
+        activity_data = {
+            "logId": result["logId"],
             "activityType": "status_change",
-            "description": f"Analysis status changed to {status}",
-            "status": status
-        })
+            "description": f"Analysis status changed to '{status}'",
+            "status": "completed"
+        }
+        storage.create_activity(activity_data)
         
-        return jsonify(updated_analysis)
+        return jsonify(result)
     except Exception as e:
-        app.logger.error(f"Error updating resolution status: {str(e)}")
-        return jsonify({"message": "Failed to update resolution status"}), 500
+        return jsonify({"error": str(e)}), 500
 
 def process_log_file(log_id, content):
     """Process log file in background"""
@@ -262,128 +214,76 @@ def process_log_file(log_id, content):
         # Update log status
         storage.update_log_status(log_id, "processing")
         
-        # Create activity record
-        storage.create_activity({
+        # Create activity
+        activity_data = {
             "logId": log_id,
             "activityType": "processing",
-            "description": "Started processing log file",
+            "description": "Log processing started",
             "status": "in_progress"
-        })
+        }
+        activity = storage.create_activity(activity_data)
         
-        # Parse the log
+        # Analyze log with LLM
+        analysis_result = llm_service.analyze_log(content)
+        
+        # Store analysis result
+        result_data = {
+            "logId": log_id,
+            "issues": analysis_result["issues"],
+            "recommendations": analysis_result["recommendations"],
+            "summary": analysis_result["summary"],
+            "severity": analysis_result["severity"],
+            "resolutionStatus": "pending"
+        }
+        analysis = storage.create_analysis_result(result_data)
+        
+        # Segment log for embedding
         segments = log_parser.segment_log_for_embedding(content)
         
-        # Process segments for embedding
-        processed_segments = []
-        milvus_available = False
-        
-        for segment in segments:
-            try:
-                embedding = llm_service.generate_embedding(segment)
-                processed_segments.append({
-                    "text": segment,
-                    "embedding": embedding,
-                    "success": True
-                })
-            except Exception as e:
-                app.logger.error(f"Error generating embedding: {str(e)}")
-                processed_segments.append({
-                    "text": segment,
-                    "embedding": [],
-                    "success": False
-                })
-        
-        successful_segments = [s for s in processed_segments if s["success"]]
-        
-        # Try to store embeddings in Milvus
-        if successful_segments:
-            try:
-                segments_for_milvus = [{"text": s["text"], "embedding": s["embedding"]} for s in successful_segments]
-                milvus_ids = milvus_service.insert_embeddings(log_id, segments_for_milvus)
-                
-                # Store embedding references
-                for i, segment in enumerate(successful_segments):
-                    milvus_id = milvus_ids[i]["id"] if i < len(milvus_ids) else f"local-{i}"
-                    storage.create_embedding({
-                        "logId": log_id,
-                        "segmentText": segment["text"],
-                        "milvusId": str(milvus_id)
-                    })
-                
-                milvus_available = True
-            except Exception as e:
-                app.logger.error(f"Failed to store embeddings in Milvus: {str(e)}")
-                
-                # Store embeddings locally anyway
-                for i, segment in enumerate(successful_segments):
-                    storage.create_embedding({
-                        "logId": log_id,
-                        "segmentText": segment["text"],
-                        "milvusId": f"local-{i}"
-                    })
-                
-                # Create activity for Milvus issue
-                storage.create_activity({
-                    "logId": log_id,
-                    "activityType": "error",
-                    "description": "Vector database (Milvus) is currently unavailable. Semantic search will be limited.",
-                    "status": "in_progress"
-                })
-        
-        # Use LLM to analyze the log
         try:
-            analysis_result = llm_service.analyze_log(content)
+            # Generate embeddings
+            embeddings = llm_service.generate_embeddings(segments)
             
-            # Store analysis result
-            storage.create_analysis_result({
-                "logId": log_id,
-                "issues": analysis_result["issues"],
-                "recommendations": analysis_result["recommendations"],
-                "severity": analysis_result["severity"],
-                "resolutionStatus": "pending"
-            })
+            # Store embeddings in Milvus
+            embedding_data = []
+            for i, (segment, embedding) in enumerate(zip(segments, embeddings)):
+                embedding_data.append({
+                    "text": segment,
+                    "embedding": embedding
+                })
+            
+            milvus_service.insert_embeddings(log_id, embedding_data)
             
             # Update log status
-            final_status = "completed" if milvus_available else "completed_without_vectors"
-            storage.update_log_status(log_id, final_status)
-            
-            # Create activity record
-            desc = "Log analysis completed with vector search capability" if milvus_available else "Log analysis completed without vector search capability"
-            storage.create_activity({
-                "logId": log_id,
-                "activityType": "analysis",
-                "description": desc,
-                "status": "completed"
-            })
-            
+            storage.update_log_status(log_id, "completed")
         except Exception as e:
-            app.logger.error(f"Failed to analyze log with LLM: {str(e)}")
-            
-            # Update log status
-            storage.update_log_status(log_id, "error")
-            
-            # Create activity record
-            storage.create_activity({
-                "logId": log_id,
-                "activityType": "error",
-                "description": f"Error analyzing log with LLM: {str(e)}",
-                "status": "error"
-            })
+            # If vector embedding fails, we still have the analysis
+            print(f"Embedding generation failed: {str(e)}")
+            storage.update_log_status(log_id, "completed_without_vectors")
+        
+        # Update activity
+        activity_data = {
+            "logId": log_id,
+            "activityType": "analysis",
+            "description": "Log analysis completed",
+            "status": "completed"
+        }
+        storage.create_activity(activity_data)
         
     except Exception as e:
-        app.logger.error(f"Error processing log {log_id}: {str(e)}")
-        
-        # Update log status
+        print(f"Error processing log: {str(e)}")
+        # Update log status to error
         storage.update_log_status(log_id, "error")
         
-        # Create activity record
-        storage.create_activity({
+        # Update activity
+        activity_data = {
             "logId": log_id,
             "activityType": "error",
             "description": f"Error processing log: {str(e)}",
             "status": "error"
-        })
+        }
+        storage.create_activity(activity_data)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=True)
