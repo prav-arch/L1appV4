@@ -10,6 +10,7 @@ import UploadLogs from "@/pages/upload-logs";
 import SemanticSearchPage from "@/pages/semantic-search";
 import Settings from "@/pages/settings";
 import AdvancedAnalysis from "@/pages/advanced-analysis";
+import VectorStore from "@/pages/vector-store";
 
 function Router() {
   return (
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/upload" component={UploadLogs} />
       <Route path="/search" component={SemanticSearchPage} />
       <Route path="/advanced" component={AdvancedAnalysis} />
+      <Route path="/vector-store" component={VectorStore} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

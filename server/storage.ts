@@ -27,6 +27,7 @@ export interface IStorage {
   // Embedding methods
   createEmbedding(embedding: InsertEmbedding): Promise<Embedding>;
   getEmbeddingsByLogId(logId: number): Promise<Embedding[]>;
+  getAllEmbeddings(): Promise<Embedding[]>;
   
   // Activity methods
   createActivity(activity: InsertActivity): Promise<Activity>;
@@ -174,6 +175,11 @@ export class MemStorage implements IStorage {
   async getEmbeddingsByLogId(logId: number): Promise<Embedding[]> {
     return Array.from(this.embeddingsData.values())
       .filter(embedding => embedding.logId === logId);
+  }
+  
+  async getAllEmbeddings(): Promise<Embedding[]> {
+    return Array.from(this.embeddingsData.values())
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
   
   // Activity methods

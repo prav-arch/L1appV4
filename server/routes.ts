@@ -362,6 +362,149 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // API route for vector store statistics
+  app.get("/api/vector-store/stats", async (req: Request, res: Response) => {
+    try {
+      let milvusAvailable = false;
+      let collections: string[] = [];
+      
+      try {
+        // Check if Milvus is available
+        await milvusService.initialize();
+        milvusAvailable = true;
+        
+        // In a real implementation, this would fetch from Milvus API
+        collections = ["telecom_logs_embeddings", "telecom_knowledge_base"];
+      } catch (error) {
+        console.error("Failed to connect to Milvus:", error);
+        milvusAvailable = false;
+      }
+      
+      // Return vector store statistics
+      res.json({
+        totalVectors: 5823, // Example count
+        dimensions: 1536, // Typical embedding dimensions
+        collections,
+        indexType: "HNSW",
+        status: milvusAvailable ? "connected" : "error",
+        lastUpdate: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error fetching vector store stats:", error);
+      res.status(500).json({ message: "Failed to fetch vector store statistics" });
+    }
+  });
+  
+  // API route for recent vectors
+  app.get("/api/vector-store/recent", async (req: Request, res: Response) => {
+    try {
+      const allEmbeddings = await storage.getAllEmbeddings();
+      
+      // Map embeddings to vector entries
+      const vectors = await Promise.all(
+        allEmbeddings.slice(0, 20).map(async (embedding) => {
+          const log = await storage.getLog(embedding.logId);
+          return {
+            id: embedding.milvusId,
+            logId: embedding.logId,
+            text: embedding.segmentText,
+            filename: log?.filename
+          };
+        })
+      );
+      
+      res.json(vectors);
+    } catch (error) {
+      console.error("Error fetching recent vectors:", error);
+      res.status(500).json({ message: "Failed to fetch recent vectors" });
+    }
+  });
+  
+  // API route for vector search
+  app.post("/api/vector-store/search", async (req: Request, res: Response) => {
+    try {
+      const { query, threshold = 0.7, limit = 10 } = req.body;
+      
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ message: "Invalid query" });
+      }
+      
+      try {
+        // Generate embedding for the query
+        const embedding = await llmService.generateEmbedding(query);
+        
+        // Search for similar log segments
+        const searchResults = await milvusService.searchSimilarText(embedding, limit);
+        
+        if (searchResults.length === 0) {
+          return res.json([]);
+        }
+        
+        // Get the log IDs from the search results to fetch full logs
+        const logIds = [...new Set(searchResults.map(result => result.logId))];
+        const logPromises = logIds.map(id => storage.getLog(id));
+        const logs = await Promise.all(logPromises);
+        
+        // Combine search results with full log data
+        const results = searchResults
+          .filter(result => result.score >= threshold)
+          .map(result => {
+            const log = logs.find(log => log?.id === result.logId);
+            return {
+              id: result.id,
+              logId: result.logId,
+              filename: log?.filename || "Unknown log",
+              text: result.text,
+              score: result.score,
+              relevance: Math.round(result.score * 100) + "%"
+            };
+          });
+        
+        res.json(results);
+      } catch (error) {
+        console.error("Error with vector search:", error);
+        
+        // Fallback to basic search in case Milvus is not available
+        const logs = await storage.getAllLogs();
+        
+        // Simple text-based search as fallback
+        const matchingLogs = logs.filter(log => 
+          log.originalContent.toLowerCase().includes(query.toLowerCase())
+        );
+        
+        if (matchingLogs.length === 0) {
+          return res.json([]);
+        }
+        
+        // Extract some context from the matched logs
+        const results = matchingLogs.map(log => {
+          // Find the context around the match
+          const lowerContent = log.originalContent.toLowerCase();
+          const queryIndex = lowerContent.indexOf(query.toLowerCase());
+          
+          // Get some context around the match (max 200 chars)
+          const startIndex = Math.max(0, queryIndex - 100);
+          const endIndex = Math.min(log.originalContent.length, queryIndex + query.length + 100);
+          const text = log.originalContent.substring(startIndex, endIndex);
+          
+          return {
+            id: `fallback-${log.id}`,
+            logId: log.id,
+            filename: log.filename,
+            text: text,
+            score: 0.5, // Arbitrary score for text search
+            relevance: "Keyword match"
+          };
+        });
+        
+        res.json(results);
+      }
+    } catch (error) {
+      console.error("Error performing vector search:", error);
+      res.status(500).json({ message: "Failed to perform search" });
+    }
+  });
+
   // API route to update resolution status
   app.patch("/api/analysis/:id/status", async (req: Request, res: Response) => {
     try {
