@@ -1,167 +1,191 @@
 import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
+import { useMutation } from "@tanstack/react-query";
+import { 
+  MessageSquare, 
+  Send, 
+  ArrowRight,
+  MessageCircle,
+  Bot,
+  UserIcon
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Spinner } from "../components/ui/spinner";
 import { API_BASE_URL } from "../config";
-import { Search, MessageCircle, AlertTriangle, Sparkle, Lightbulb } from "lucide-react";
 
 interface NLQueryResponse {
   answer: string;
-  relevant_entries: string[];
-  suggested_follow_up: string[];
+  relevantSections: string[];
+  confidence: number;
 }
 
 export function NaturalLanguageQuery() {
   const [query, setQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [response, setResponse] = useState<NLQueryResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!query.trim()) {
-      return;
-    }
-    
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const res = await fetch(`${API_BASE_URL}/natural-language-query`, {
+  const [conversation, setConversation] = useState<{role: "user" | "assistant"; content: string}[]>([]);
+  
+  const nlQuery = useMutation({
+    mutationFn: async (queryText: string) => {
+      const response = await fetch(`${API_BASE_URL}/query/natural-language`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query: queryText }),
       });
       
-      if (!res.ok) {
-        throw new Error(`Server responded with ${res.status}: ${res.statusText}`);
+      if (!response.ok) {
+        throw new Error("Failed to process natural language query");
       }
       
-      const data = await res.json();
-      setResponse(data);
-    } catch (err) {
-      console.error("Error querying logs:", err);
-      setError(err instanceof Error ? err.message : "An unknown error occurred");
-      toast({
-        variant: "destructive",
-        title: "Query failed",
-        description: "We couldn't process your query. Please try again.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+      return response.json() as Promise<NLQueryResponse>;
+    },
+    onSuccess: (data) => {
+      setConversation(prev => [
+        ...prev,
+        { role: "assistant", content: data.answer }
+      ]);
+    },
+    onError: (error) => {
+      setConversation(prev => [
+        ...prev,
+        { role: "assistant", content: `Error: ${error instanceof Error ? error.message : "Failed to process query"}` }
+      ]);
+    },
+  });
+  
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!query.trim()) return;
+    
+    // Add user message to conversation
+    setConversation(prev => [
+      ...prev, 
+      { role: "user", content: query }
+    ]);
+    
+    // Process the query
+    nlQuery.mutate(query);
+    
+    // Clear the input
+    setQuery("");
   };
-
-  const handleFollowUpClick = (followUp: string) => {
-    setQuery(followUp);
-    // Don't automatically submit to give user a chance to edit
-  };
-
+  
+  // Simple examples to show users
+  const examples = [
+    "What are the most common error types in the logs?",
+    "Explain the authentication failure pattern in the last 24 hours",
+    "Summarize performance issues across network devices",
+    "Show me connection timeout patterns"
+  ];
+  
   return (
-    <Card className="w-full max-w-4xl">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle className="flex items-center">
-          <Sparkle className="h-5 w-5 mr-2 text-primary" />
-          Natural Language Log Query
+          <MessageSquare className="h-5 w-5 mr-2 text-primary" />
+          Natural Language Query
         </CardTitle>
         <CardDescription>
-          Ask questions about your telecom logs in plain English
+          Ask questions about your logs in plain English
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex gap-2">
-            <Input
-              placeholder="e.g., What authentication failures occurred yesterday?"
+      
+      <CardContent className="space-y-4">
+        {/* Conversation display */}
+        <div className="border rounded-md p-4 min-h-[200px] max-h-[400px] overflow-y-auto bg-slate-50">
+          {conversation.length === 0 ? (
+            <div className="text-center py-8 text-slate-500">
+              <Bot className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+              <p className="mb-2">Ask a question about your log data in natural language</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-4 max-w-2xl mx-auto">
+                {examples.map((example, index) => (
+                  <Button 
+                    key={index} 
+                    variant="outline" 
+                    className="justify-start text-left h-auto py-2"
+                    onClick={() => {
+                      setQuery(example);
+                    }}
+                  >
+                    <ArrowRight className="h-3 w-3 mr-2 flex-shrink-0" />
+                    <span className="text-xs">{example}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {conversation.map((message, index) => (
+                <div 
+                  key={index} 
+                  className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
+                >
+                  <div 
+                    className={`max-w-[80%] md:max-w-[70%] rounded-lg p-3 ${
+                      message.role === "assistant" 
+                        ? "bg-white border border-slate-200" 
+                        : "bg-primary text-primary-foreground"
+                    }`}
+                  >
+                    <div className="flex items-start mb-1">
+                      {message.role === "assistant" ? (
+                        <Bot className="h-4 w-4 mr-2 mt-1" />
+                      ) : (
+                        <UserIcon className="h-4 w-4 mr-2 mt-1" />
+                      )}
+                      <span className="text-xs font-medium">
+                        {message.role === "assistant" ? "AI Assistant" : "You"}
+                      </span>
+                    </div>
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  </div>
+                </div>
+              ))}
+              
+              {nlQuery.isPending && (
+                <div className="flex justify-start">
+                  <div className="bg-white border border-slate-200 rounded-lg p-3 flex items-center">
+                    <Spinner size="sm" className="mr-2" />
+                    <span className="text-sm text-slate-500">Thinking...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Input form */}
+        <form onSubmit={handleSubmit} className="flex items-end gap-2">
+          <div className="flex-1">
+            <Textarea
+              placeholder="Ask a question about your log data..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="flex-1"
-              disabled={isLoading}
+              className="min-h-[80px] resize-none"
             />
-            <Button type="submit" disabled={isLoading || !query.trim()}>
-              {isLoading ? <Spinner className="mr-2 h-4 w-4" /> : <Search className="mr-2 h-4 w-4" />}
-              Search
-            </Button>
           </div>
+          
+          <Button 
+            type="submit" 
+            disabled={!query.trim() || nlQuery.isPending}
+            className="flex-shrink-0"
+          >
+            {nlQuery.isPending ? (
+              <Spinner size="sm" />
+            ) : (
+              <>
+                <Send className="h-4 w-4 mr-2" />
+                Send
+              </>
+            )}
+          </Button>
         </form>
-
-        {isLoading && (
-          <div className="flex justify-center items-center mt-8 mb-4">
-            <Spinner className="h-8 w-8" />
-            <span className="ml-3 text-sm text-slate-500">Analyzing logs...</span>
-          </div>
-        )}
-
-        {error && (
-          <div className="mt-4 p-4 border border-red-200 rounded-md bg-red-50">
-            <div className="flex items-start">
-              <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5 mr-2" />
-              <div>
-                <h4 className="font-medium text-red-800">Error</h4>
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {response && !isLoading && (
-          <div className="mt-6 space-y-6">
-            <div className="bg-slate-50 p-4 rounded-lg border">
-              <div className="flex items-start">
-                <MessageCircle className="h-5 w-5 text-primary mt-1 mr-3 flex-shrink-0" />
-                <div>
-                  <h3 className="font-medium text-slate-900">Answer</h3>
-                  <p className="mt-2 text-slate-700 whitespace-pre-line">{response.answer}</p>
-                </div>
-              </div>
-            </div>
-
-            {response.relevant_entries && response.relevant_entries.length > 0 && (
-              <div>
-                <h4 className="text-sm font-medium text-slate-700 mb-2">Relevant Log Entries</h4>
-                <div className="bg-slate-100 p-3 rounded-md border max-h-60 overflow-y-auto">
-                  {response.relevant_entries.map((entry, i) => (
-                    <div 
-                      key={i} 
-                      className="text-xs font-mono p-1.5 border-b last:border-b-0 text-slate-700"
-                    >
-                      {entry}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {response.suggested_follow_up && response.suggested_follow_up.length > 0 && (
-              <div>
-                <h4 className="text-sm font-medium text-slate-700 mb-2">Follow-up Questions</h4>
-                <div className="flex flex-wrap gap-2">
-                  {response.suggested_follow_up.map((followUp, i) => (
-                    <Badge 
-                      key={i} 
-                      variant="outline"
-                      className="cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleFollowUpClick(followUp)}
-                    >
-                      <Lightbulb className="h-3 w-3 mr-1" />
-                      {followUp}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </CardContent>
-      <CardFooter className="text-xs text-slate-500 justify-end">
-        Powered by GenAI analysis of telecom logs
+      
+      <CardFooter className="text-xs text-slate-500 italic">
+        Results are based on analysis of your uploaded log data
       </CardFooter>
     </Card>
   );

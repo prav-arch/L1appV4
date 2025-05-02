@@ -9,6 +9,7 @@ import LogsHistory from "@/pages/logs-history";
 import UploadLogs from "@/pages/upload-logs";
 import SemanticSearchPage from "@/pages/semantic-search";
 import Settings from "@/pages/settings";
+import AdvancedAnalysis from "@/pages/advanced-analysis";
 
 function Router() {
   return (
@@ -17,6 +18,7 @@ function Router() {
       <Route path="/logs" component={LogsHistory} />
       <Route path="/upload" component={UploadLogs} />
       <Route path="/search" component={SemanticSearchPage} />
+      <Route path="/advanced" component={AdvancedAnalysis} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

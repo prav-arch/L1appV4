@@ -1,251 +1,248 @@
-import { useState } from "react";
-import { useToast } from "@/hooks/use-toast";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "wouter";
+import { useState, useRef } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { 
+  UploadCloud, 
+  FileUp, 
+  CheckCircle, 
+  AlertCircle,
+  Shield,
+  Network,
+  Wifi,
+  Database,
+  Router
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { AlertTriangle, FileUp, CheckCircle, Network } from "lucide-react";
+import { Spinner } from "../components/ui/spinner";
 import { API_BASE_URL } from "../config";
 
 export function PcapUpload() {
-  const [file, setFile] = useState<File | null>(null);
+  const [uploadedFileId, setUploadedFileId] = useState<number | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [dragOver, setDragOver] = useState(false);
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [, navigate] = useNavigate();
-
-  const upload = useMutation({
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
       const xhr = new XMLHttpRequest();
       
-      const promise = new Promise<{ id: number; message: string }>((resolve, reject) => {
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            const progress = Math.round((event.loaded / event.total) * 100);
-            setUploadProgress(progress);
-          }
-        });
-        
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const response = JSON.parse(xhr.responseText);
-              resolve(response);
-            } catch (e) {
-              reject(new Error("Invalid response format"));
-            }
-          } else {
-            reject(new Error(`Upload failed with status ${xhr.status}`));
-          }
-        });
-        
-        xhr.addEventListener("error", () => {
-          reject(new Error("Network error"));
-        });
-        
-        xhr.addEventListener("abort", () => {
-          reject(new Error("Upload aborted"));
-        });
+      xhr.open('POST', `${API_BASE_URL}/pcap/upload`, true);
+      
+      // Set up progress tracking
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 90); // Show up to 90% for upload
+          setUploadProgress(progress);
+        }
       });
       
-      xhr.open("POST", `${API_BASE_URL}/pcap/upload`);
-      xhr.send(formData);
-      
-      return promise;
+      return new Promise<{id: number, filename: string}>((resolve, reject) => {
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setUploadProgress(100); // Set to 100% on success
+            resolve(JSON.parse(xhr.response));
+          } else {
+            reject(new Error(`HTTP error! Status: ${xhr.status}`));
+          }
+        };
+        
+        xhr.onerror = () => {
+          reject(new Error('Network error occurred during upload'));
+        };
+        
+        xhr.send(formData);
+      });
     },
     onSuccess: (data) => {
-      toast({
-        title: "PCAP Upload Successful",
-        description: "Your PCAP file has been uploaded and is being analyzed.",
-        variant: "default",
-      });
-      
-      queryClient.invalidateQueries({ queryKey: ["/api/logs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/activities"] });
-      
-      // Navigate to the analysis page after a delay
-      setTimeout(() => {
-        navigate(`/logs/${data.id}`);
-      }, 1500);
+      // Store the uploaded file ID
+      setUploadedFileId(data.id);
+      setUploadProgress(100);
     },
     onError: (error) => {
-      toast({
-        title: "Upload Failed",
-        description: error instanceof Error ? error.message : "An unknown error occurred",
-        variant: "destructive",
-      });
+      console.error('Upload failed:', error);
       setUploadProgress(0);
-    },
+    }
   });
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const selectedFile = e.target.files[0];
-      validateAndSetFile(selectedFile);
+  
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files.length > 0) {
+      setSelectedFile(event.target.files[0]);
     }
   };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragOver(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const droppedFile = e.dataTransfer.files[0];
-      validateAndSetFile(droppedFile);
-    }
-  };
-
-  const validateAndSetFile = (file: File) => {
-    // Check if file is a PCAP file
-    const validExtensions = [".pcap", ".pcapng", ".cap"];
-    const fileExtension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-    
-    if (!validExtensions.includes(fileExtension)) {
-      toast({
-        title: "Invalid File Type",
-        description: "Please upload a PCAP file (.pcap, .pcapng, or .cap)",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Check file size (limit to 50MB)
-    const maxSize = 50 * 1024 * 1024; // 50MB in bytes
-    if (file.size > maxSize) {
-      toast({
-        title: "File Too Large",
-        description: "PCAP file size must be less than 50MB",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    setFile(file);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!file) {
-      toast({
-        title: "No File Selected",
-        description: "Please select a PCAP file to upload",
-        variant: "destructive",
-      });
-      return;
-    }
+  
+  const handleUpload = () => {
+    if (!selectedFile) return;
     
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append('file', selectedFile);
     
     setUploadProgress(0);
-    upload.mutate(formData);
+    uploadMutation.mutate(formData);
   };
-
+  
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    
+    if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+      setSelectedFile(event.dataTransfer.files[0]);
+    }
+  };
+  
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  };
+  
   return (
-    <Card className="w-full max-w-2xl">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle className="flex items-center">
           <Network className="h-5 w-5 mr-2 text-primary" />
-          Upload PCAP File
+          PCAP File Analysis
         </CardTitle>
         <CardDescription>
-          Upload a packet capture file for network traffic analysis
+          Upload packet capture files for network traffic analysis
         </CardDescription>
       </CardHeader>
+      
       <CardContent>
-        <form onSubmit={handleSubmit}>
-          <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center ${
-              dragOver ? "border-primary bg-primary/5" : "border-slate-300"
-            } transition-colors cursor-pointer`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => document.getElementById("pcap-file-input")?.click()}
-          >
-            <input
-              type="file"
-              id="pcap-file-input"
-              accept=".pcap,.pcapng,.cap"
-              className="hidden"
-              onChange={handleFileChange}
-              disabled={upload.isPending}
-            />
-            
-            <div className="flex flex-col items-center justify-center space-y-3">
-              <FileUp className="h-12 w-12 text-slate-400" />
-              <div>
-                <p className="font-medium text-slate-800">
-                  {file ? file.name : "Drag & Drop your PCAP file here"}
-                </p>
-                <p className="text-sm text-slate-500 mt-1">
-                  {file ? `${(file.size / (1024 * 1024)).toFixed(2)} MB` : "Or click to browse"}
-                </p>
+        {uploadMutation.isPending ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-center py-8">
+              <Spinner size="lg" className="text-primary" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Uploading {selectedFile?.name}</span>
+                <span>{uploadProgress}%</span>
               </div>
-              
-              {!file && (
-                <Badge variant="outline" className="font-normal">
-                  .pcap, .pcapng, .cap up to 50MB
-                </Badge>
-              )}
-              
-              {file && !upload.isPending && (
-                <Button type="button" onClick={(e) => {
-                  e.stopPropagation();
-                  setFile(null);
-                }} variant="ghost" size="sm">
-                  Remove file
-                </Button>
+              <Progress value={uploadProgress} className="h-2" />
+              {uploadProgress === 100 && (
+                <div className="flex items-center justify-center text-green-600 gap-1 pt-2">
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="text-sm">Upload successful!</span>
+                </div>
               )}
             </div>
           </div>
-          
-          {upload.isPending && (
-            <div className="mt-4 space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">Uploading...</span>
-                <span className="text-sm text-slate-500">{uploadProgress}%</span>
+        ) : uploadMutation.isError ? (
+          <div className="py-8 text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <p className="text-red-600 mb-4">Upload failed</p>
+            <p className="text-slate-500 text-sm mb-4">
+              {uploadMutation.error instanceof Error 
+                ? uploadMutation.error.message 
+                : 'An unknown error occurred'}
+            </p>
+            <Button onClick={() => uploadMutation.reset()}>Try Again</Button>
+          </div>
+        ) : (
+          <>
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center ${
+                selectedFile ? 'border-primary bg-primary/5' : 'border-slate-300 hover:border-primary/50'
+              }`}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+            >
+              {selectedFile ? (
+                <div className="space-y-4">
+                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
+                  <div>
+                    <p className="font-medium text-slate-900">{selectedFile.name}</p>
+                    <p className="text-sm text-slate-500">
+                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedFile(null)}
+                    className="mt-2"
+                  >
+                    Select a different file
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <UploadCloud className="h-12 w-12 text-slate-400 mx-auto" />
+                  <div>
+                    <p className="font-medium text-slate-900">Drag and drop your PCAP file here</p>
+                    <p className="text-sm text-slate-500 mt-1">or click to browse</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <FileUp className="h-4 w-4 mr-2" />
+                    Select PCAP File
+                  </Button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept=".pcap,.pcapng"
+                    className="hidden"
+                  />
+                </div>
+              )}
+            </div>
+            
+            {/* Info section about PCAP files */}
+            <div className="mt-6 bg-slate-50 p-4 rounded-md">
+              <h3 className="text-sm font-medium mb-3">What can be analyzed in PCAP files?</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex gap-2">
+                  <div className="mt-0.5">
+                    <Wifi className="h-4 w-4 text-blue-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-900">Network Protocols</h4>
+                    <p className="text-xs text-slate-500">Analyze protocol usage and distribution</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="mt-0.5">
+                    <Database className="h-4 w-4 text-green-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-900">Traffic Patterns</h4>
+                    <p className="text-xs text-slate-500">Identify flow characteristics and volume</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="mt-0.5">
+                    <Shield className="h-4 w-4 text-red-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-900">Security Issues</h4>
+                    <p className="text-xs text-slate-500">Detect anomalies and potential threats</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="mt-0.5">
+                    <Router className="h-4 w-4 text-purple-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-900">Telecom Protocols</h4>
+                    <p className="text-xs text-slate-500">Analyze specialized telecom protocols</p>
+                  </div>
+                </div>
               </div>
-              <Progress value={uploadProgress} className="h-2" />
             </div>
-          )}
-          
-          {upload.isError && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-red-800 text-sm flex items-start">
-              <AlertTriangle className="h-5 w-5 text-red-500 mr-2 flex-shrink-0" />
-              <span>
-                {upload.error instanceof Error
-                  ? upload.error.message
-                  : "An error occurred during upload"}
-              </span>
-            </div>
-          )}
-          
-          {upload.isSuccess && (
-            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded text-green-800 text-sm flex items-start">
-              <CheckCircle className="h-5 w-5 text-green-500 mr-2 flex-shrink-0" />
-              <span>PCAP file uploaded successfully! Redirecting to analysis page...</span>
-            </div>
-          )}
-          
-          <Button
-            type="submit"
-            className="w-full mt-4"
-            disabled={!file || upload.isPending}
-          >
-            {upload.isPending ? "Uploading..." : "Upload PCAP File"}
-          </Button>
-        </form>
+          </>
+        )}
       </CardContent>
-      <CardFooter className="text-xs text-slate-500">
-        PCAP files will be analyzed for network traffic patterns and telecom protocol data
+      
+      <CardFooter className="flex justify-between">
+        <p className="text-xs text-slate-500">Supported file formats: .pcap, .pcapng</p>
+        
+        {selectedFile && !uploadMutation.isPending && (
+          <Button onClick={handleUpload} disabled={!selectedFile}>
+            <UploadCloud className="h-4 w-4 mr-2" />
+            Upload and Analyze
+          </Button>
+        )}
       </CardFooter>
     </Card>
   );

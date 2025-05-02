@@ -13,6 +13,7 @@ export function Sidebar({ className }: SidebarProps) {
     { path: "/upload", label: "Upload Logs", icon: "fa-upload" },
     { path: "/logs", label: "Log History", icon: "fa-history" },
     { path: "/search", label: "Semantic Search", icon: "fa-search" },
+    { path: "/advanced", label: "Advanced Analysis", icon: "fa-brain" },
     { path: "/settings", label: "Settings", icon: "fa-cog" },
   ];
   
