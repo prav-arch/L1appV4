@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { 
   UploadCloud, 
   FileUp, 
@@ -17,6 +18,43 @@ import { Progress } from "@/components/ui/progress";
 import { Spinner } from "../components/ui/spinner";
 import { API_BASE_URL } from "../config";
 
+// Types for PCAP analysis response
+interface PcapAnalysisStats {
+  totalPackets: number;
+  duration: string;
+  totalSize: string;
+  avgPacketSize: string;
+}
+
+interface PcapAnomaly {
+  type: string;
+  description: string;
+  severity?: string;
+}
+
+interface PcapConversation {
+  src: string;
+  dst: string;
+  packets: number;
+  bytes: number;
+  protocol?: string;
+}
+
+interface PcapProtocolDetail {
+  description: string;
+  count?: number;
+  details?: string;
+}
+
+interface PcapAnalysisResult {
+  summary: string;
+  stats: PcapAnalysisStats;
+  protocols: Record<string, number>;
+  anomalies?: PcapAnomaly[];
+  telecomProtocols?: Record<string, PcapProtocolDetail>;
+  conversations?: PcapConversation[];
+}
+
 export function PcapUpload() {
   const [uploadedFileId, setUploadedFileId] = useState<number | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -25,7 +63,7 @@ export function PcapUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Fetch analysis results after upload
-  const analysisResults = useQuery({
+  const analysisResults = useQuery<PcapAnalysisResult>({
     queryKey: [`${API_BASE_URL}/pcap/${uploadedFileId}/analysis`],
     enabled: uploadedFileId !== null,
   });
@@ -150,6 +188,170 @@ export function PcapUpload() {
                 : 'An unknown error occurred'}
             </p>
             <Button onClick={() => uploadMutation.reset()}>Try Again</Button>
+          </div>
+        ) : uploadComplete && analysisResults.isLoading ? (
+          <div className="py-8 text-center">
+            <Spinner size="lg" className="text-primary mx-auto mb-4" />
+            <p className="text-slate-700">Processing PCAP file...</p>
+            <p className="text-sm text-slate-500 mt-2">This may take a few moments depending on file size</p>
+          </div>
+        ) : uploadComplete && analysisResults.data ? (
+          <div className="space-y-6">
+            <div className="flex items-center justify-center py-4">
+              <div className="flex items-center justify-center text-green-600 gap-2">
+                <CheckCircle className="h-5 w-5" />
+                <span className="font-medium">Analysis Complete</span>
+              </div>
+            </div>
+            
+            {/* Analysis Results */}
+            <div className="space-y-6">
+              {/* Summary */}
+              <div className="bg-white p-4 rounded-md border border-slate-200">
+                <h3 className="text-sm font-semibold mb-2">Summary</h3>
+                <p className="text-sm text-slate-700">
+                  {analysisResults.data.summary || "Analysis summary will appear here"}
+                </p>
+              </div>
+              
+              {/* Statistics */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Basic Statistics</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {analysisResults.data.stats && (
+                    <>
+                      <div className="bg-white p-3 rounded-md border border-slate-200">
+                        <p className="text-xs text-slate-500">Total Packets</p>
+                        <p className="text-lg font-semibold">{analysisResults.data.stats.totalPackets || 0}</p>
+                      </div>
+                      <div className="bg-white p-3 rounded-md border border-slate-200">
+                        <p className="text-xs text-slate-500">Duration</p>
+                        <p className="text-lg font-semibold">{analysisResults.data.stats.duration || '0s'}</p>
+                      </div>
+                      <div className="bg-white p-3 rounded-md border border-slate-200">
+                        <p className="text-xs text-slate-500">Total Size</p>
+                        <p className="text-lg font-semibold">{analysisResults.data.stats.totalSize || '0 KB'}</p>
+                      </div>
+                      <div className="bg-white p-3 rounded-md border border-slate-200">
+                        <p className="text-xs text-slate-500">Average Packet Size</p>
+                        <p className="text-lg font-semibold">{analysisResults.data.stats.avgPacketSize || '0 bytes'}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              
+              {/* Protocol Analysis */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Protocol Distribution</h3>
+                <div className="bg-white p-4 rounded-md border border-slate-200">
+                  {analysisResults.data.protocols ? (
+                    <div className="space-y-3">
+                      {Object.entries(analysisResults.data.protocols).map(([protocol, count]) => (
+                        <div key={protocol} className="flex justify-between items-center">
+                          <span className="text-sm">{protocol}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-primary" 
+                                style={{ 
+                                  width: `${Math.min(100, (count as number / (analysisResults.data?.stats?.totalPackets || 1)) * 100)}%` 
+                                }}
+                              />
+                            </div>
+                            <span className="text-sm text-slate-500">{count}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">No protocol data available</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Anomalies */}
+              {analysisResults.data.anomalies && analysisResults.data.anomalies.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-3 flex items-center">
+                    <Shield className="h-4 w-4 mr-2 text-red-500" />
+                    Detected Anomalies
+                  </h3>
+                  <div className="bg-white p-4 rounded-md border border-slate-200">
+                    <div className="space-y-3">
+                      {analysisResults.data.anomalies.map((anomaly, index) => (
+                        <div key={index} className="p-3 bg-red-50 border border-red-100 rounded-md">
+                          <p className="text-sm font-medium text-red-700">{anomaly.type}</p>
+                          <p className="text-xs text-red-600 mt-1">{anomaly.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Telecom Protocols */}
+              {analysisResults.data.telecomProtocols && Object.keys(analysisResults.data.telecomProtocols).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-3 flex items-center">
+                    <Router className="h-4 w-4 mr-2 text-purple-500" />
+                    Telecom Protocols
+                  </h3>
+                  <div className="bg-white p-4 rounded-md border border-slate-200">
+                    <div className="space-y-3">
+                      {Object.entries(analysisResults.data.telecomProtocols).map(([protocol, details]) => (
+                        <div key={protocol} className="p-3 bg-purple-50 border border-purple-100 rounded-md">
+                          <p className="text-sm font-medium text-purple-700">{protocol}</p>
+                          <p className="text-xs text-purple-600 mt-1">{(details as any).description || 'No details available'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Conversations */}
+              {analysisResults.data.conversations && analysisResults.data.conversations.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">Top Conversations</h3>
+                  <div className="bg-white rounded-md border border-slate-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Source</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Destination</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">Packets</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">Bytes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {analysisResults.data.conversations.slice(0, 5).map((conv, index) => (
+                          <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="px-4 py-2">{conv.src}</td>
+                            <td className="px-4 py-2">{conv.dst}</td>
+                            <td className="px-4 py-2 text-right">{conv.packets}</td>
+                            <td className="px-4 py-2 text-right">{conv.bytes}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-center pt-4">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setUploadedFileId(null);
+                  setSelectedFile(null);
+                  setUploadComplete(false);
+                }}
+              >
+                Upload Another File
+              </Button>
+            </div>
           </div>
         ) : (
           <>
