@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Spinner } from '@/components/ui/spinner';
 import { Progress } from '@/components/ui/progress';
@@ -101,6 +103,8 @@ export default function ModelFineTuning() {
   const [createDatasetOpen, setCreateDatasetOpen] = useState(false);
   const [createJobOpen, setCreateJobOpen] = useState(false);
   const [selectedLogIds, setSelectedLogIds] = useState<number[]>([]);
+  const [jobDetailsOpen, setJobDetailsOpen] = useState(false);
+  const [selectedJobDetails, setSelectedJobDetails] = useState<FineTuningJob | null>(null);
 
   // Fetch fine-tuning jobs
   const { 
@@ -540,6 +544,7 @@ export default function ModelFineTuning() {
                               <TableCell className="font-mono text-xs">{job.id}</TableCell>
                               <TableCell>{job.dataset_id}</TableCell>
                               <TableCell>{getStatusBadge(job.status)}</TableCell>
+                              <TableCell>{renderProgress(job)}</TableCell>
                               <TableCell>{formatDate(job.created_at)}</TableCell>
                               <TableCell>{formatDate(job.completed_at)}</TableCell>
                               <TableCell className="text-right">
@@ -564,10 +569,17 @@ export default function ModelFineTuning() {
                                       Simulate Failure
                                     </Button>
                                   )}
-                                  {job.status === 'completed' && (
-                                    <Button variant="outline" size="sm">
+                                  {(job.status === 'completed' || job.status === 'running') && (
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      onClick={() => {
+                                        setSelectedJobDetails(job);
+                                        setJobDetailsOpen(true);
+                                      }}
+                                    >
                                       <BarChart className="h-4 w-4 mr-1" />
-                                      View Metrics
+                                      {job.status === 'completed' ? 'View Metrics' : 'View Details'}
                                     </Button>
                                   )}
                                 </div>
@@ -737,6 +749,157 @@ export default function ModelFineTuning() {
           </div>
         </TabsContent>
       </Tabs>
+      
+      {/* Job Details Drawer */}
+      <Sheet open={jobDetailsOpen} onOpenChange={setJobDetailsOpen}>
+        <SheetContent className="sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>
+              {selectedJobDetails?.status === 'completed' ? 
+                'Fine-Tuning Results' : 
+                'Fine-Tuning Progress'}
+            </SheetTitle>
+            <SheetDescription>
+              {selectedJobDetails?.status === 'completed' ? 
+                'Training metrics and final model details' : 
+                'Real-time training progress and logs'}
+            </SheetDescription>
+          </SheetHeader>
+          
+          <ScrollArea className="mt-6 h-[calc(100vh-180px)]">
+            {selectedJobDetails && (
+              <div className="space-y-6">
+                {/* Job Info */}
+                <div className="p-4 rounded-md border bg-slate-50">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <div className="font-medium text-slate-700">Job ID</div>
+                      <div className="font-mono mt-1">{selectedJobDetails.id}</div>
+                    </div>
+                    <div>
+                      <div className="font-medium text-slate-700">Status</div>
+                      <div className="mt-1">{getStatusBadge(selectedJobDetails.status)}</div>
+                    </div>
+                    <div>
+                      <div className="font-medium text-slate-700">Dataset</div>
+                      <div className="mt-1">{selectedJobDetails.dataset_id}</div>
+                    </div>
+                    <div>
+                      <div className="font-medium text-slate-700">Base Model</div>
+                      <div className="mt-1">{selectedJobDetails.model_name}</div>
+                    </div>
+                    <div>
+                      <div className="font-medium text-slate-700">Started</div>
+                      <div className="mt-1">{formatDate(selectedJobDetails.started_at)}</div>
+                    </div>
+                    <div>
+                      <div className="font-medium text-slate-700">Completed</div>
+                      <div className="mt-1">{formatDate(selectedJobDetails.completed_at)}</div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Progress Section */}
+                {selectedJobDetails.progress && (
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold">Training Progress</h3>
+                    
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="font-medium">Progress</span>
+                        <span>{selectedJobDetails.progress.percentage_complete}%</span>
+                      </div>
+                      <Progress value={selectedJobDetails.progress.percentage_complete} className="h-2" />
+                      
+                      <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
+                        <div>
+                          <div className="text-slate-600">Epoch</div>
+                          <div className="font-medium mt-1">
+                            {selectedJobDetails.progress.current_epoch} / {selectedJobDetails.progress.total_epochs}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-slate-600">Step</div>
+                          <div className="font-medium mt-1">
+                            {selectedJobDetails.progress.current_step} / {selectedJobDetails.progress.total_steps}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-slate-600">Loss</div>
+                          <div className="font-medium mt-1">
+                            {selectedJobDetails.progress.loss?.toFixed(4) || 'N/A'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-slate-600">ETA</div>
+                          <div className="font-medium mt-1">
+                            {selectedJobDetails.progress.estimated_time_remaining}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Metrics Section (for completed jobs) */}
+                {selectedJobDetails.status === 'completed' && Object.keys(selectedJobDetails.metrics).length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold">Training Metrics</h3>
+                    
+                    <div className="p-4 rounded-md border">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        {Object.entries(selectedJobDetails.metrics).map(([key, value]) => (
+                          <div key={key}>
+                            <div className="text-slate-600">{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</div>
+                            <div className="font-medium mt-1">
+                              {typeof value === 'number' ? 
+                                (key.includes('loss') ? value.toFixed(4) : value.toFixed(2)) : 
+                                String(value)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Training Logs */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Training Logs</h3>
+                  
+                  <div className="border rounded-md p-4 bg-slate-50 font-mono text-sm overflow-x-auto">
+                    {selectedJobDetails.logs && selectedJobDetails.logs.length > 0 ? (
+                      <div className="space-y-2">
+                        {selectedJobDetails.logs.map((log, idx) => (
+                          <div key={idx} className="grid grid-cols-[80px_1fr] gap-2">
+                            <div className="text-slate-500 whitespace-nowrap">
+                              {new Date(log.timestamp).toLocaleTimeString()}
+                            </div>
+                            <div>{log.message}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-slate-500">No logs available</div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Configuration */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Configuration</h3>
+                  
+                  <div className="p-4 rounded-md border bg-slate-50 overflow-x-auto">
+                    <div className="font-mono text-sm">
+                      <pre>{JSON.stringify(selectedJobDetails.config, null, 2)}</pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
