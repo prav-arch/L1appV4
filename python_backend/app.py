@@ -414,7 +414,33 @@ def submit_resolution_feedback(issue_id):
         
         # Update the model with feedback if successful
         if was_successful:
-            llm_service.train_on_resolution_history(storage.get_resolution_feedback())
+            # Get the log content for the issue
+            analysis = storage.get_analysis_result(issue_id)
+            if analysis and "logId" in analysis:
+                log = storage.get_log(analysis["logId"])
+                if log:
+                    # Prepare feedback for fine-tuning
+                    resolution_data = {
+                        "issueId": issue_id,
+                        "log_content": log.get("originalContent", ""),
+                        "issues": analysis.get("issues", []),
+                        "resolution": {
+                            "steps": steps,
+                            "summary": feedback,
+                            "category": "user_feedback"
+                        },
+                        "was_successful": was_successful,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
+                    # Start fine-tuning with this feedback
+                    training_result = llm_service.train_on_resolution_history([resolution_data])
+                    
+                    # Log the training result
+                    print(f"Training result: {training_result}")
+            else:
+                # Fallback to the original method if we can't find the log
+                llm_service.train_on_resolution_history(storage.get_resolution_feedback())
         
         # Create activity record
         activity_data = {
@@ -610,6 +636,128 @@ def process_pcap_file(pcap_id, file_path):
             "status": "error"
         }
         storage.create_activity(activity_data)
+
+# Fine-tuning API endpoints
+@app.route('/api/fine-tuning/jobs', methods=['GET'])
+def get_fine_tuning_jobs():
+    """Get all fine-tuning jobs"""
+    try:
+        result = llm_service.list_fine_tuning_jobs()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/fine-tuning/jobs/<string:job_id>', methods=['GET'])
+def get_fine_tuning_job(job_id):
+    """Get a specific fine-tuning job"""
+    try:
+        result = llm_service.get_fine_tuning_status(job_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/fine-tuning/models', methods=['GET'])
+def get_fine_tuned_models():
+    """Get all fine-tuned models"""
+    try:
+        result = llm_service.get_fine_tuned_models()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/fine-tuning/jobs', methods=['POST'])
+def start_fine_tuning_job():
+    """Start a new fine-tuning job"""
+    try:
+        data = request.json
+        
+        # Validate required fields
+        if not data.get("dataset_id"):
+            return jsonify({"error": "Dataset ID is required"}), 400
+        
+        # Start fine-tuning job
+        dataset_id = data.get("dataset_id")
+        model_name = data.get("model_name", "llama-3.1-8b-local")
+        config = data.get("config", None)
+        
+        job_info = fine_tuning_service.start_fine_tuning(
+            dataset_id=dataset_id,
+            model_name=model_name,
+            config=config
+        )
+        
+        return jsonify({
+            "status": "success",
+            "message": "Fine-tuning job started",
+            "job_info": job_info
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/fine-tuning/datasets', methods=['POST'])
+def create_fine_tuning_dataset():
+    """Create a new fine-tuning dataset from logs and their analyses"""
+    try:
+        data = request.json
+        
+        # Validate required fields
+        if not data.get("log_ids") or not data.get("dataset_name"):
+            return jsonify({"error": "Log IDs and dataset name are required"}), 400
+        
+        log_ids = data.get("log_ids")
+        dataset_name = data.get("dataset_name")
+        
+        # Get logs and their analyses
+        log_contents = []
+        analysis_results = []
+        
+        for log_id in log_ids:
+            log = storage.get_log(log_id)
+            analysis = storage.get_analysis_result_by_log_id(log_id)
+            
+            if log and analysis:
+                log_contents.append(log.get("originalContent", ""))
+                analysis_results.append(analysis)
+        
+        if not log_contents or not analysis_results:
+            return jsonify({"error": "No valid logs or analyses found"}), 400
+        
+        # Create dataset
+        dataset_info = fine_tuning_service.prepare_dataset_from_logs(
+            log_contents=log_contents,
+            analysis_results=analysis_results,
+            dataset_name=dataset_name
+        )
+        
+        return jsonify({
+            "status": "success",
+            "message": "Dataset created successfully",
+            "dataset_info": dataset_info
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/fine-tuning/jobs/<string:job_id>/simulate', methods=['POST'])
+def simulate_job_completion(job_id):
+    """Simulate the completion of a fine-tuning job (for development)"""
+    try:
+        data = request.json
+        success = data.get("success", True)
+        
+        updated_job = fine_tuning_service.simulate_job_completion(job_id, success)
+        if not updated_job:
+            return jsonify({"error": "Job not found"}), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Job {job_id} simulation completed",
+            "job_info": updated_job
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
