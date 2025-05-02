@@ -14,6 +14,7 @@ from services.log_parser import LogParser
 from services.llm_service import LLMService
 from services.milvus_service import MilvusService
 from services.pcap_analyzer import PcapAnalyzer
+from services.llm_fine_tuning import fine_tuning_service
 
 # Load environment variables
 load_dotenv()

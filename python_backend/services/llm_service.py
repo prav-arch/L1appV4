@@ -3,8 +3,9 @@ import json
 import requests
 import hashlib
 import random
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional
 from datetime import datetime
+from .llm_fine_tuning import fine_tuning_service
 
 class LLMService:
     """Service for interacting with the local LLM"""
@@ -1193,15 +1194,130 @@ class LLMService:
         }
     
     def train_on_resolution_history(self, resolution_feedback):
-        """Train model on resolution feedback (mock implementation)"""
+        """
+        Train model on resolution feedback
+        
+        Args:
+            resolution_feedback: List of dictionaries containing issue details and their resolutions
+            
+        Returns:
+            Dictionary with status information about the training process
+        """
         if self.mock_mode:
             print("Mock mode: Would train model on resolution feedback")
-            return
+            return {"status": "success", "message": "Model training simulation complete"}
         
-        # This is a placeholder for actual implementation
-        # In a real system, this might update a knowledge base or fine-tune the model
-        successful_feedback = [f for f in resolution_feedback if f.get("was_successful", False)]
-        print(f"Training on {len(successful_feedback)} successful resolution records")
+        try:
+            # Extract log contents and analysis results for fine-tuning
+            log_contents = []
+            analysis_results = []
+            
+            # Filter successful feedback entries
+            successful_feedback = [f for f in resolution_feedback if f.get("was_successful", False)]
+            print(f"Training on {len(successful_feedback)} successful resolution records")
+            
+            for item in successful_feedback:
+                if "log_content" in item and "resolution" in item:
+                    log_contents.append(item["log_content"])
+                    
+                    # Format the analysis result with the resolution feedback
+                    analysis = {
+                        "issues": item.get("issues", []),
+                        "recommendations": [
+                            {
+                                "title": "Applied Resolution",
+                                "description": item["resolution"]["steps"],
+                                "category": item["resolution"].get("category", "resolution"),
+                                "isAutomaticallyResolved": False
+                            }
+                        ],
+                        "summary": item["resolution"].get("summary", "Resolution applied successfully"),
+                        "severity": item.get("severity", "medium")
+                    }
+                    
+                    analysis_results.append(analysis)
+            
+            if not log_contents or not analysis_results:
+                return {
+                    "status": "error", 
+                    "message": "No valid training data found in resolution feedback"
+                }
+            
+            # Prepare the dataset for fine-tuning
+            dataset_info = fine_tuning_service.prepare_dataset_from_logs(
+                log_contents=log_contents,
+                analysis_results=analysis_results,
+                dataset_name=f"Resolution_Feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
+            
+            # Start the fine-tuning job
+            job_info = fine_tuning_service.start_fine_tuning(
+                dataset_id=dataset_info["id"],
+                model_name=self.model_name
+            )
+            
+            return {
+                "status": "success",
+                "message": f"Model fine-tuning job started with ID: {job_info['id']}",
+                "dataset_id": dataset_info["id"],
+                "job_id": job_info["id"]
+            }
+            
+        except Exception as e:
+            print(f"Error during fine-tuning: {str(e)}")
+            return {"status": "error", "message": f"Fine-tuning error: {str(e)}"}
+            
+    def get_fine_tuning_status(self, job_id: str) -> Dict[str, Any]:
+        """
+        Get the status of a fine-tuning job
         
-        # Here we would process the feedback and improve future recommendations
-        # In this implementation we just log what would happen
+        Args:
+            job_id: ID of the fine-tuning job
+            
+        Returns:
+            Dictionary with job status information
+        """
+        try:
+            job_info = fine_tuning_service.get_fine_tuning_job(job_id)
+            if job_info:
+                return {
+                    "status": "success",
+                    "job_status": job_info["status"],
+                    "job_details": job_info
+                }
+            else:
+                return {"status": "error", "message": f"Job ID not found: {job_id}"}
+        except Exception as e:
+            return {"status": "error", "message": f"Error getting job status: {str(e)}"}
+    
+    def list_fine_tuning_jobs(self) -> Dict[str, Any]:
+        """
+        List all fine-tuning jobs
+        
+        Returns:
+            Dictionary with list of jobs
+        """
+        try:
+            jobs = fine_tuning_service.get_all_fine_tuning_jobs()
+            return {
+                "status": "success",
+                "jobs": jobs
+            }
+        except Exception as e:
+            return {"status": "error", "message": f"Error listing jobs: {str(e)}"}
+    
+    def get_fine_tuned_models(self) -> Dict[str, Any]:
+        """
+        Get list of available fine-tuned models
+        
+        Returns:
+            Dictionary with list of fine-tuned models
+        """
+        try:
+            models = fine_tuning_service.get_available_fine_tuned_models()
+            return {
+                "status": "success",
+                "models": models
+            }
+        except Exception as e:
+            return {"status": "error", "message": f"Error getting models: {str(e)}"}
