@@ -52,9 +52,19 @@ export default function VectorStorePage() {
   const [maxResults, setMaxResults] = useState(10);
   const [activeTab, setActiveTab] = useState("overview");
   
+  // Default stats to handle null values
+  const defaultStats: VectorStoreStats = {
+    totalVectors: 0,
+    dimensions: 0,
+    collections: [],
+    indexType: "None",
+    status: "error",
+    lastUpdate: new Date().toISOString()
+  };
+
   // Fetch vector store statistics
   const { 
-    data: stats, 
+    data: statsData, 
     isLoading: loadingStats,
     isError: statsError,
     error: statsErrorData
@@ -62,15 +72,21 @@ export default function VectorStorePage() {
     queryKey: [`${API_BASE_URL}/api/vector-store/stats`],
   });
   
+  // Ensure stats always has a value for safe access
+  const stats = statsData || defaultStats;
+  
   // Fetch recent vectors
   const { 
-    data: recentVectors,
+    data: vectorsData,
     isLoading: loadingVectors,
     isError: vectorsError,
     error: vectorsErrorData
   } = useQuery<VectorEntry[]>({
     queryKey: [`${API_BASE_URL}/api/vector-store/recent`],
   });
+  
+  // Ensure recentVectors is always defined
+  const recentVectors = vectorsData || [];
   
   // State for search results
   const [searchResults, setSearchResults] = useState<VectorEntry[]>([]);
