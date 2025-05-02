@@ -214,3 +214,51 @@ class MemStorage:
             "pendingIssues": pending_issues,
             "avgResolutionTime": avg_resolution_time
         }
+    
+    def get_all_analysis_results(self) -> List[Dict[str, Any]]:
+        """Get all analysis results"""
+        results = []
+        for result in self.analysis_results.values():
+            # Convert date to ISO format for JSON serialization
+            result_copy = result.copy()
+            result_copy["analysisDate"] = result_copy["analysisDate"].isoformat()
+            results.append(result_copy)
+        return results
+    
+    def store_resolution_feedback(self, issue_id: int, steps: List[str], was_successful: bool, feedback: str = "") -> None:
+        """Store feedback on the success of resolution steps for an issue"""
+        # Initialize the feedback storage if it doesn't exist
+        if not hasattr(self, 'resolution_feedback'):
+            self.resolution_feedback = []
+        
+        feedback_entry = {
+            "issue_id": issue_id,
+            "steps": steps,
+            "was_successful": was_successful,
+            "feedback": feedback,
+            "timestamp": datetime.now()
+        }
+        self.resolution_feedback.append(feedback_entry)
+        
+        # Create activity
+        description = f"Feedback submitted for issue #{issue_id}: {'Successful' if was_successful else 'Unsuccessful'}"
+        self.create_activity({
+            "activityType": "feedback",
+            "description": description,
+            "status": "completed"
+        })
+    
+    def get_resolution_feedback(self) -> List[Dict[str, Any]]:
+        """Get all resolution feedback entries"""
+        # Initialize the feedback storage if it doesn't exist
+        if not hasattr(self, 'resolution_feedback'):
+            self.resolution_feedback = []
+            
+        # Convert timestamps to ISO format for JSON serialization
+        feedback_copy = []
+        for entry in self.resolution_feedback:
+            entry_copy = entry.copy()
+            entry_copy["timestamp"] = entry_copy["timestamp"].isoformat()
+            feedback_copy.append(entry_copy)
+            
+        return feedback_copy

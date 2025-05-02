@@ -2,6 +2,7 @@ import os
 import json
 import tempfile
 import uuid
+from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -498,6 +499,113 @@ def process_log_file(log_id, content):
             "logId": log_id,
             "activityType": "error",
             "description": f"Error processing log: {str(e)}",
+            "status": "error"
+        }
+        storage.create_activity(activity_data)
+
+def process_pcap_file(pcap_id, file_path):
+    """Process PCAP file in background"""
+    try:
+        # Update log status
+        storage.update_log_status(pcap_id, "processing")
+        
+        # Create activity
+        activity_data = {
+            "logId": pcap_id,
+            "activityType": "processing",
+            "description": "PCAP analysis started",
+            "status": "in_progress"
+        }
+        storage.create_activity(activity_data)
+        
+        # Analyze PCAP file
+        try:
+            pcap_analysis = pcap_analyzer.analyze_pcap(file_path)
+            
+            # Generate a human-readable summary
+            summary = pcap_analyzer.generate_pcap_summary(file_path, pcap_analysis)
+            
+            # Analyze the summary with LLM for recommendations
+            llm_analysis = llm_service.analyze_log(summary)
+            
+            # Store telecom-specific stats
+            telecom_stats = pcap_analyzer.extract_telecom_protocols(file_path)
+            
+            # Store analysis result
+            result_data = {
+                "logId": pcap_id,
+                "issues": llm_analysis["issues"],
+                "recommendations": llm_analysis["recommendations"],
+                "summary": llm_analysis["summary"],
+                "severity": llm_analysis["severity"],
+                "resolutionStatus": "pending",
+                "pcapData": {
+                    "file_path": file_path,
+                    "basic_stats": pcap_analysis["basic_stats"],
+                    "protocol_stats": pcap_analysis["protocol_stats"],
+                    "anomalies": pcap_analysis["anomalies"]
+                }
+            }
+            analysis = storage.create_analysis_result(result_data)
+            
+            # Update log status
+            storage.update_log_status(pcap_id, "completed")
+            
+            # Update activity
+            activity_data = {
+                "logId": pcap_id,
+                "activityType": "analysis",
+                "description": "PCAP analysis completed",
+                "status": "completed"
+            }
+            storage.create_activity(activity_data)
+            
+        except Exception as e:
+            print(f"Error analyzing PCAP: {str(e)}")
+            # Store error analysis result
+            result_data = {
+                "logId": pcap_id,
+                "issues": [{
+                    "title": "PCAP Analysis Error",
+                    "description": f"Error analyzing PCAP file: {str(e)}",
+                    "severity": "high",
+                    "firstOccurrence": datetime.now().isoformat(),
+                    "status": "pending"
+                }],
+                "recommendations": [{
+                    "title": "Try Different File Format",
+                    "description": "Try converting the PCAP file to a different format or check if it's corrupted.",
+                    "category": "other",
+                    "isAutomaticallyResolved": False
+                }],
+                "summary": f"Failed to analyze PCAP file: {str(e)}",
+                "severity": "high",
+                "resolutionStatus": "pending"
+            }
+            storage.create_analysis_result(result_data)
+            
+            # Update log status
+            storage.update_log_status(pcap_id, "error")
+            
+            # Update activity
+            activity_data = {
+                "logId": pcap_id,
+                "activityType": "error",
+                "description": f"Error analyzing PCAP: {str(e)}",
+                "status": "error"
+            }
+            storage.create_activity(activity_data)
+    
+    except Exception as e:
+        print(f"Error processing PCAP: {str(e)}")
+        # Update log status to error
+        storage.update_log_status(pcap_id, "error")
+        
+        # Update activity
+        activity_data = {
+            "logId": pcap_id,
+            "activityType": "error",
+            "description": f"Error processing PCAP: {str(e)}",
             "status": "error"
         }
         storage.create_activity(activity_data)
