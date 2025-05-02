@@ -1,6 +1,5 @@
-import { useState, useRef } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { useState, useRef, useEffect } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { 
   UploadCloud, 
   FileUp, 
@@ -22,7 +21,21 @@ export function PcapUpload() {
   const [uploadedFileId, setUploadedFileId] = useState<number | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadComplete, setUploadComplete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Fetch analysis results after upload
+  const analysisResults = useQuery({
+    queryKey: [`${API_BASE_URL}/pcap/${uploadedFileId}/analysis`],
+    enabled: uploadedFileId !== null,
+  });
+  
+  useEffect(() => {
+    if (uploadComplete && uploadedFileId) {
+      // Refetch analysis results when upload completes
+      analysisResults.refetch();
+    }
+  }, [uploadComplete, uploadedFileId, analysisResults]);
   
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
@@ -59,6 +72,7 @@ export function PcapUpload() {
       // Store the uploaded file ID
       setUploadedFileId(data.id);
       setUploadProgress(100);
+      setUploadComplete(true);
     },
     onError: (error) => {
       console.error('Upload failed:', error);
