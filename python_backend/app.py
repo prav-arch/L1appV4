@@ -1,5 +1,7 @@
 import os
 import json
+import tempfile
+import uuid
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -10,6 +12,7 @@ from services.storage import MemStorage
 from services.log_parser import LogParser
 from services.llm_service import LLMService
 from services.milvus_service import MilvusService
+from services.pcap_analyzer import PcapAnalyzer
 
 # Load environment variables
 load_dotenv()
@@ -18,11 +21,16 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+# Create uploads directory if it doesn't exist
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 # Initialize services
 storage = MemStorage()
 log_parser = LogParser()
 llm_service = LLMService()
 milvus_service = MilvusService()
+pcap_analyzer = PcapAnalyzer()
 
 # Background processing tasks
 processing_tasks = {}
@@ -205,6 +213,216 @@ def update_status(analysis_id):
         storage.create_activity(activity_data)
         
         return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/pcap/upload', methods=['POST'])
+def upload_pcap():
+    """Upload a PCAP file for analysis"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Check file extension
+        if not file.filename.lower().endswith(('.pcap', '.pcapng', '.cap')):
+            return jsonify({"error": "Invalid file format. Only PCAP files are supported."}), 400
+        
+        # Save file to disk temporarily
+        filename = str(uuid.uuid4()) + '_' + file.filename
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(file_path)
+        
+        # Create log record for PCAP
+        pcap_data = {
+            "filename": file.filename,
+            "originalContent": f"PCAP file saved at {file_path}",
+            "fileSize": os.path.getsize(file_path),
+            "processingStatus": "pending",
+            "fileType": "pcap"
+        }
+        
+        pcap_log = storage.create_log(pcap_data)
+        
+        # Create activity record
+        activity_data = {
+            "logId": pcap_log["id"],
+            "activityType": "upload",
+            "description": f"PCAP file '{file.filename}' uploaded",
+            "status": "completed"
+        }
+        storage.create_activity(activity_data)
+        
+        # Start processing in background
+        threading.Thread(target=process_pcap_file, args=(pcap_log["id"], file_path)).start()
+        
+        return jsonify({"id": pcap_log["id"], "message": "PCAP file uploaded successfully"})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/pcap/<int:pcap_id>/analysis', methods=['GET'])
+def get_pcap_analysis(pcap_id):
+    """Get PCAP analysis results"""
+    try:
+        analysis = storage.get_analysis_result_by_log_id(pcap_id)
+        if not analysis:
+            return jsonify({"error": "PCAP analysis not found"}), 404
+        
+        # For PCAP analysis, include additional telecom protocol info
+        if "pcapData" in analysis and "file_path" in analysis["pcapData"]:
+            file_path = analysis["pcapData"]["file_path"]
+            if os.path.exists(file_path):
+                telecom_stats = pcap_analyzer.extract_telecom_protocols(file_path)
+                analysis["telecomStats"] = telecom_stats
+        
+        return jsonify(analysis)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/logs/<int:log_id>/root-cause-analysis', methods=['GET'])
+def get_root_cause_analysis(log_id):
+    """Get root cause analysis for a log"""
+    try:
+        log = storage.get_log(log_id)
+        if not log:
+            return jsonify({"error": "Log not found"}), 404
+        
+        analysis = storage.get_analysis_result_by_log_id(log_id)
+        if not analysis:
+            return jsonify({"error": "Analysis not found"}), 404
+        
+        # Perform deeper root cause analysis using LLM
+        content = log.get("originalContent", "")
+        issues = analysis.get("issues", [])
+        
+        root_causes = llm_service.perform_root_cause_analysis(content, issues)
+        
+        return jsonify(root_causes)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/prediction/potential-issues', methods=['GET'])
+def predict_potential_issues():
+    """Predict potential issues based on current log patterns"""
+    try:
+        # Get all logs
+        logs = storage.get_all_logs()
+        
+        # Extract content from the most recent logs
+        recent_logs_content = []
+        for log in logs[:5]:  # Use the 5 most recent logs
+            if log.get("fileType") != "pcap":  # Skip PCAP files
+                recent_logs_content.append(log.get("originalContent", ""))
+        
+        # Use LLM to predict potential issues
+        predictions = llm_service.predict_potential_issues(recent_logs_content)
+        
+        return jsonify(predictions)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/logs/<int:log_id>/timeline', methods=['GET'])
+def get_log_timeline(log_id):
+    """Get timeline analysis for a specific log"""
+    try:
+        log = storage.get_log(log_id)
+        if not log:
+            return jsonify({"error": "Log not found"}), 404
+        
+        # Extract and analyze timeline events
+        timeline_events = log_parser.extract_timestamps(log.get("originalContent", ""))
+        
+        # Analyze events for significance
+        enriched_timeline = llm_service.analyze_timeline_events(timeline_events, log_id)
+        
+        return jsonify(enriched_timeline)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/issues/<int:issue_id>/remediation', methods=['GET'])
+def get_remediation_steps(issue_id):
+    """Get detailed remediation steps for an issue"""
+    try:
+        # Find the analysis result containing this issue
+        analysis_results = storage.get_all_analysis_results()
+        target_analysis = None
+        target_issue = None
+        
+        for analysis in analysis_results:
+            for issue in analysis.get("issues", []):
+                if issue.get("id") == issue_id:
+                    target_analysis = analysis
+                    target_issue = issue
+                    break
+            if target_analysis:
+                break
+        
+        if not target_issue:
+            return jsonify({"error": "Issue not found"}), 404
+        
+        # Get the associated log
+        log = storage.get_log(target_analysis.get("logId"))
+        if not log:
+            return jsonify({"error": "Associated log not found"}), 404
+        
+        # Generate remediation steps
+        remediation = llm_service.generate_remediation_steps(target_issue, log.get("originalContent", ""))
+        
+        return jsonify(remediation)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/natural-language-query', methods=['POST'])
+def natural_language_query():
+    """Process natural language queries about log data"""
+    try:
+        query = request.json.get('query')
+        if not query:
+            return jsonify({"error": "No query provided"}), 400
+        
+        # Get all logs for context
+        logs = storage.get_all_logs()
+        log_contents = [log.get('originalContent', '') for log in logs if log.get("fileType") != "pcap"]
+        
+        # Process the natural language query
+        result = llm_service.process_natural_language_query(query, log_contents)
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/issues/<int:issue_id>/feedback', methods=['POST'])
+def submit_resolution_feedback(issue_id):
+    """Submit feedback on resolution steps"""
+    try:
+        data = request.json
+        was_successful = data.get('wasSuccessful')
+        feedback = data.get('feedback', '')
+        steps = data.get('steps', [])
+        
+        if was_successful is None:
+            return jsonify({"error": "Missing required field: wasSuccessful"}), 400
+        
+        # Store feedback
+        storage.store_resolution_feedback(issue_id, steps, was_successful, feedback)
+        
+        # Update the model with feedback if successful
+        if was_successful:
+            llm_service.train_on_resolution_history(storage.get_resolution_feedback())
+        
+        # Create activity record
+        activity_data = {
+            "activityType": "feedback",
+            "description": f"Resolution feedback submitted: {'Successful' if was_successful else 'Unsuccessful'}",
+            "status": "completed"
+        }
+        storage.create_activity(activity_data)
+        
+        return jsonify({"message": "Feedback submitted successfully"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
