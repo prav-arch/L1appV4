@@ -144,10 +144,12 @@ export default function ModelFineTuning() {
         method: 'POST', 
         body: JSON.stringify(data) 
       }),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast({
         title: "Success",
-        description: `Dataset created: ${data.dataset_info.name}`,
+        description: data.dataset_info?.name 
+          ? `Dataset created: ${data.dataset_info.name}`
+          : "Dataset created successfully",
       });
       setCreateDatasetOpen(false);
       setSelectedLogIds([]);

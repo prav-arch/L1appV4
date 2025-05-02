@@ -10,7 +10,8 @@ import {
   Home,
   Network,
   Cpu,
-  Database
+  Database,
+  Zap
 } from "lucide-react";
 
 interface LayoutProps {
@@ -27,6 +28,7 @@ export default function Layout({ children }: LayoutProps) {
     { href: "/search", label: "Semantic Search", icon: Search },
     { href: "/advanced", label: "Advanced Analysis", icon: Network },
     { href: "/vector-store", label: "Vector Store", icon: Database },
+    { href: "/fine-tuning", label: "Fine-Tuning", icon: Zap },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
   
