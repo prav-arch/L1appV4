@@ -69,7 +69,7 @@ export default function VectorStorePage() {
     isError: statsError,
     error: statsErrorData
   } = useQuery<VectorStoreStats>({
-    queryKey: [`${API_BASE_URL}/api/vector-store/stats`],
+    queryKey: [`/api/vector-store/stats`],
   });
   
   // Ensure stats always has a value for safe access
@@ -82,7 +82,7 @@ export default function VectorStorePage() {
     isError: vectorsError,
     error: vectorsErrorData
   } = useQuery<VectorEntry[]>({
-    queryKey: [`${API_BASE_URL}/api/vector-store/recent`],
+    queryKey: [`/api/vector-store/recent`],
   });
   
   // Ensure recentVectors is always defined
@@ -101,7 +101,7 @@ export default function VectorStorePage() {
     setSearchError(null);
     
     try {
-      const results = await apiRequest<VectorEntry[]>(`${API_BASE_URL}/api/vector-store/search`, {
+      const results = await apiRequest<VectorEntry[]>(`/api/vector-store/search`, {
         method: "POST",
         body: JSON.stringify({
           query: searchQuery,
