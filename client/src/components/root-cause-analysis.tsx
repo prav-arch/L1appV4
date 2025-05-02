@@ -1,415 +1,383 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { 
-  SearchIcon, 
-  Loader2, 
-  Target, 
-  ArrowRight,
-  ArrowRightCircle,
-  AlertTriangle,
-  Link2,
-  Network,
-  Eye,
-  Waves
-} from "lucide-react";
+import ForceGraph2D from "react-force-graph-2d";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
+import { Network, BarChartHorizontal, Bug, AlertTriangle, CheckCircle2, HelpCircle, Shield } from "lucide-react";
 import { API_BASE_URL } from "../config";
 
-interface RootCauseNode {
+// Define types for the root cause analysis data
+interface IssueNode {
   id: string;
-  title: string;
+  name: string;
+  type: "issue" | "cause" | "effect" | "related";
+  severity: "high" | "medium" | "low";
+  status: "resolved" | "pending" | "investigating";
   description: string;
-  confidence: number;
-  evidencePoints: string[];
-  level: "root" | "contributing" | "symptom";
 }
 
-interface RootCauseLink {
+interface IssueLink {
   source: string;
   target: string;
-  label?: string;
+  strength: number;
+  type: "causes" | "affects" | "related" | "mitigates";
+  description?: string;
 }
 
-interface RootCauseAnalysisResult {
-  nodes: RootCauseNode[];
-  links: RootCauseLink[];
+interface RootCauseData {
+  nodes: IssueNode[];
+  links: IssueLink[];
   summary: string;
   recommendations: string[];
 }
 
 export function RootCauseAnalysis({ logId }: { logId: number }) {
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [selectedIssue, setSelectedIssue] = useState<IssueNode | null>(null);
+  const [graphDistance, setGraphDistance] = useState<number>(120);
+  const [filterSeverity, setFilterSeverity] = useState<string>("all");
+  const graphRef = useRef<any>(null);
   
-  const { data, isLoading, error } = useQuery<RootCauseAnalysisResult>({
-    queryKey: [`/api/logs/${logId}/root-cause`],
+  // Fetch root cause analysis data
+  const { data, isLoading, isError, error } = useQuery<RootCauseData>({
+    queryKey: [`${API_BASE_URL}/logs/${logId}/root-cause-analysis`],
     enabled: !!logId,
   });
   
-  // Get the root cause nodes
-  const getRootCauses = () => {
-    if (!data?.nodes) return [];
-    return data.nodes.filter(node => node.level === "root");
-  };
-  
-  // Get contributing factors
-  const getContributingFactors = () => {
-    if (!data?.nodes) return [];
-    return data.nodes.filter(node => node.level === "contributing");
-  };
-  
-  // Get symptoms
-  const getSymptoms = () => {
-    if (!data?.nodes) return [];
-    return data.nodes.filter(node => node.level === "symptom");
-  };
-  
-  // Get node by ID
-  const getNodeById = (id: string) => {
-    if (!data?.nodes) return null;
-    return data.nodes.find(node => node.id === id) || null;
-  };
-  
-  // Get confidence color
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 80) return "text-green-600";
-    if (confidence >= 60) return "text-lime-600";
-    if (confidence >= 40) return "text-amber-600";
-    if (confidence >= 20) return "text-orange-600";
-    return "text-red-600";
-  };
-  
-  // Get level badge
-  const getLevelBadge = (level: string) => {
-    switch (level) {
-      case 'root':
-        return <Badge className="bg-red-100 text-red-800 hover:bg-red-200 border-red-200">Root Cause</Badge>;
-      case 'contributing':
-        return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-200 border-amber-200">Contributing Factor</Badge>;
-      case 'symptom':
-        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200">Symptom</Badge>;
-      default:
-        return <Badge variant="outline">{level}</Badge>;
+  // Center the graph when data changes
+  useEffect(() => {
+    if (data && graphRef.current) {
+      // Allow the graph to stabilize and then zoom to fit
+      setTimeout(() => {
+        if (graphRef.current) {
+          graphRef.current.zoomToFit(400);
+        }
+      }, 500);
     }
-  };
+  }, [data]);
   
-  // Get level icon
-  const getLevelIcon = (level: string) => {
-    switch (level) {
-      case 'root':
-        return <Target className="h-4 w-4 text-red-500" />;
-      case 'contributing':
-        return <Waves className="h-4 w-4 text-amber-500" />;
-      case 'symptom':
-        return <AlertTriangle className="h-4 w-4 text-blue-500" />;
-      default:
-        return <Eye className="h-4 w-4 text-slate-500" />;
-    }
-  };
-  
-  // Get relationships for a node
-  const getNodeRelationships = (nodeId: string) => {
-    if (!data?.links) return { sources: [], targets: [] };
+  // Filter nodes based on severity if needed
+  const getFilteredData = () => {
+    if (!data) return { nodes: [], links: [] };
+    if (filterSeverity === "all") return data;
     
-    const sources = data.links
-      .filter(link => link.target === nodeId)
-      .map(link => {
-        const sourceNode = getNodeById(link.source);
-        return {
-          nodeId: link.source,
-          title: sourceNode?.title || "Unknown",
-          level: sourceNode?.level || "unknown",
-          label: link.label
-        };
-      });
+    const filteredNodes = data.nodes.filter(node => 
+      filterSeverity === "all" || node.severity === filterSeverity
+    );
+    
+    const nodeIds = new Set(filteredNodes.map(node => node.id));
+    
+    const filteredLinks = data.links.filter(link => 
+      nodeIds.has(link.source.toString()) && nodeIds.has(link.target.toString())
+    );
+    
+    return { 
+      ...data, 
+      nodes: filteredNodes, 
+      links: filteredLinks 
+    };
+  };
+  
+  // Node color based on type and severity
+  const getNodeColor = (node: IssueNode) => {
+    if (node.type === "cause") {
+      return node.severity === "high" ? "#ef4444" : node.severity === "medium" ? "#f97316" : "#eab308";
+    } else if (node.type === "issue") {
+      return node.severity === "high" ? "#dc2626" : node.severity === "medium" ? "#ea580c" : "#ca8a04";
+    } else if (node.type === "effect") {
+      return node.severity === "high" ? "#b91c1c" : node.severity === "medium" ? "#c2410c" : "#a16207";
+    }
+    return "#6b7280"; // default for related
+  };
+  
+  // Node size based on node type
+  const getNodeSize = (node: IssueNode) => {
+    if (node.type === "cause") return 12;
+    if (node.type === "issue") return 14;
+    if (node.type === "effect") return 10;
+    return 8; // related
+  };
+  
+  // Link color based on relationship type
+  const getLinkColor = (link: IssueLink) => {
+    if (link.type === "causes") return "#ef4444";
+    if (link.type === "affects") return "#f97316";
+    if (link.type === "mitigates") return "#22c55e";
+    return "#94a3b8"; // related
+  };
+  
+  // Format node label based on node type
+  const getNodeLabel = (node: IssueNode) => {
+    const maxLength = 25;
+    const shortenedName = node.name.length > maxLength 
+      ? node.name.substring(0, maxLength) + '...' 
+      : node.name;
       
-    const targets = data.links
-      .filter(link => link.source === nodeId)
-      .map(link => {
-        const targetNode = getNodeById(link.target);
-        return {
-          nodeId: link.target,
-          title: targetNode?.title || "Unknown",
-          level: targetNode?.level || "unknown",
-          label: link.label
-        };
-      });
-      
-    return { sources, targets };
+    return shortenedName;
+  };
+  
+  // Handle node click to show details
+  const handleNodeClick = (node: IssueNode) => {
+    setSelectedIssue(node);
+  };
+  
+  // Render the status badge
+  const renderStatusBadge = (status: string) => {
+    switch (status) {
+      case "resolved":
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+            <CheckCircle2 className="w-3 h-3 mr-1" />
+            Resolved
+          </span>
+        );
+      case "pending":
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+            <HelpCircle className="w-3 h-3 mr-1" />
+            Pending
+          </span>
+        );
+      case "investigating":
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+            <Bug className="w-3 h-3 mr-1" />
+            Investigating
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+            Unknown
+          </span>
+        );
+    }
+  };
+  
+  // Render the severity badge
+  const renderSeverityBadge = (severity: string) => {
+    switch (severity) {
+      case "high":
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            High
+          </span>
+        );
+      case "medium":
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Medium
+          </span>
+        );
+      case "low":
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Low
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+            Unknown
+          </span>
+        );
+    }
   };
   
   return (
-    <Card className="w-full mb-6">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle className="flex items-center">
-          <Target className="h-5 w-5 mr-2 text-primary" />
+          <Network className="h-5 w-5 mr-2 text-primary" />
           Root Cause Analysis
         </CardTitle>
         <CardDescription>
-          Identifying the underlying causes of issues in log data
+          Interactive visualization of issue relationships and root causes
         </CardDescription>
       </CardHeader>
       
       <CardContent>
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-            <p className="text-sm text-slate-500">Analyzing root causes...</p>
+          <div className="flex flex-col items-center justify-center py-12">
+            <Spinner size="lg" className="text-primary mb-4" />
+            <p className="text-slate-600">Analyzing logs to identify root causes...</p>
           </div>
-        ) : error ? (
-          <div className="py-8 text-center text-slate-500">
-            <p className="text-red-500 mb-4">Error analyzing root causes</p>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <Shield className="h-12 w-12 text-red-500 mb-4" />
+            <p className="text-slate-800 font-medium mb-2">Failed to load root cause analysis</p>
+            <p className="text-slate-600 text-sm">
+              {error instanceof Error ? error.message : "An unknown error occurred"}
+            </p>
+            <Button variant="outline" className="mt-4">Retry</Button>
           </div>
-        ) : data ? (
-          <div className="space-y-6">
-            {/* Summary */}
-            <div className="bg-slate-50 p-4 rounded-md">
-              <p className="text-slate-700">{data.summary}</p>
-            </div>
-            
-            {/* Graph visualization representation */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-              {/* Root Causes Column */}
-              <div className="space-y-2">
-                <h3 className="font-medium text-sm flex items-center gap-2 mb-3">
-                  <Target className="h-4 w-4 text-red-500" />
-                  <span>Root Causes</span>
-                </h3>
-                
-                {getRootCauses().map(node => (
-                  <div 
-                    key={node.id}
-                    className={`border rounded-md p-3 cursor-pointer transition-colors ${
-                      selectedNode === node.id 
-                        ? 'border-primary bg-primary/5' 
-                        : 'hover:bg-slate-50'
-                    }`}
-                    onClick={() => setSelectedNode(node.id)}
-                  >
-                    <h4 className="font-medium text-slate-900 mb-1">{node.title}</h4>
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline" className={getConfidenceColor(node.confidence)}>
-                        {node.confidence}% confidence
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-                
-                {getRootCauses().length === 0 && (
-                  <div className="text-center py-4 border rounded-md border-dashed border-slate-300 bg-slate-50">
-                    <p className="text-slate-500 text-sm">No root causes identified</p>
-                  </div>
-                )}
-              </div>
-              
-              {/* Contributing Factors Column */}
-              <div className="space-y-2">
-                <h3 className="font-medium text-sm flex items-center gap-2 mb-3">
-                  <Waves className="h-4 w-4 text-amber-500" />
-                  <span>Contributing Factors</span>
-                </h3>
-                
-                {getContributingFactors().map(node => (
-                  <div 
-                    key={node.id}
-                    className={`border rounded-md p-3 cursor-pointer transition-colors ${
-                      selectedNode === node.id 
-                        ? 'border-primary bg-primary/5' 
-                        : 'hover:bg-slate-50'
-                    }`}
-                    onClick={() => setSelectedNode(node.id)}
-                  >
-                    <h4 className="font-medium text-slate-900 mb-1">{node.title}</h4>
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline" className={getConfidenceColor(node.confidence)}>
-                        {node.confidence}% confidence
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-                
-                {getContributingFactors().length === 0 && (
-                  <div className="text-center py-4 border rounded-md border-dashed border-slate-300 bg-slate-50">
-                    <p className="text-slate-500 text-sm">No contributing factors identified</p>
-                  </div>
-                )}
-              </div>
-              
-              {/* Symptoms Column */}
-              <div className="space-y-2">
-                <h3 className="font-medium text-sm flex items-center gap-2 mb-3">
-                  <AlertTriangle className="h-4 w-4 text-blue-500" />
-                  <span>Observable Symptoms</span>
-                </h3>
-                
-                {getSymptoms().map(node => (
-                  <div 
-                    key={node.id}
-                    className={`border rounded-md p-3 cursor-pointer transition-colors ${
-                      selectedNode === node.id 
-                        ? 'border-primary bg-primary/5' 
-                        : 'hover:bg-slate-50'
-                    }`}
-                    onClick={() => setSelectedNode(node.id)}
-                  >
-                    <h4 className="font-medium text-slate-900 mb-1">{node.title}</h4>
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline" className={getConfidenceColor(node.confidence)}>
-                        {node.confidence}% confidence
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-                
-                {getSymptoms().length === 0 && (
-                  <div className="text-center py-4 border rounded-md border-dashed border-slate-300 bg-slate-50">
-                    <p className="text-slate-500 text-sm">No symptoms identified</p>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {/* Selected Node Details */}
-            {selectedNode && (
-              <div className="border rounded-md overflow-hidden">
-                <div className="bg-slate-50 p-4 border-b">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        {getLevelIcon(getNodeById(selectedNode)?.level || "unknown")}
-                        <h3 className="font-medium text-lg">{getNodeById(selectedNode)?.title}</h3>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getLevelBadge(getNodeById(selectedNode)?.level || "unknown")}
-                        <Badge variant="outline" className={getConfidenceColor(getNodeById(selectedNode)?.confidence || 0)}>
-                          {getNodeById(selectedNode)?.confidence || 0}% confidence
-                        </Badge>
-                      </div>
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => setSelectedNode(null)}
-                    >
-                      Close
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="p-4">
-                  <div className="mb-4">
-                    <p className="text-slate-700">{getNodeById(selectedNode)?.description}</p>
-                  </div>
-                  
-                  {/* Evidence Points */}
-                  <div className="mb-4">
-                    <h4 className="text-sm font-medium mb-2">Evidence in Logs</h4>
-                    <div className="space-y-2">
-                      {getNodeById(selectedNode)?.evidencePoints.map((evidence, i) => (
-                        <div key={i} className="bg-slate-50 p-2 rounded border text-sm">
-                          {evidence}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  {/* Relationships */}
-                  <div>
-                    <h4 className="text-sm font-medium mb-2">Relationships</h4>
-                    <div className="space-y-4">
-                      {/* Causes (incoming) */}
-                      {getNodeRelationships(selectedNode).sources.length > 0 && (
-                        <div>
-                          <h5 className="text-xs text-slate-500 mb-1">CAUSED BY</h5>
-                          <div className="space-y-1">
-                            {getNodeRelationships(selectedNode).sources.map((rel, i) => (
-                              <Button 
-                                key={i} 
-                                variant="outline" 
-                                className="w-full justify-between text-left font-normal h-auto py-2"
-                                onClick={() => setSelectedNode(rel.nodeId)}
-                              >
-                                <div className="flex items-center gap-2">
-                                  {getLevelIcon(rel.level)}
-                                  <span>{rel.title}</span>
-                                </div>
-                                <ArrowRight className="h-3 w-3 flex-shrink-0" />
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Effects (outgoing) */}
-                      {getNodeRelationships(selectedNode).targets.length > 0 && (
-                        <div>
-                          <h5 className="text-xs text-slate-500 mb-1">LEADS TO</h5>
-                          <div className="space-y-1">
-                            {getNodeRelationships(selectedNode).targets.map((rel, i) => (
-                              <Button 
-                                key={i} 
-                                variant="outline" 
-                                className="w-full justify-between text-left font-normal h-auto py-2"
-                                onClick={() => setSelectedNode(rel.nodeId)}
-                              >
-                                <div className="flex items-center gap-2">
-                                  {getLevelIcon(rel.level)}
-                                  <span>{rel.title}</span>
-                                </div>
-                                <ArrowRight className="h-3 w-3 flex-shrink-0" />
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {getNodeRelationships(selectedNode).sources.length === 0 && 
-                       getNodeRelationships(selectedNode).targets.length === 0 && (
-                        <div className="text-center py-3 border rounded-md border-dashed">
-                          <Network className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                          <p className="text-slate-500 text-sm">No relationships found</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Recommendations */}
-            {data.recommendations && data.recommendations.length > 0 && (
-              <div>
-                <h3 className="font-medium text-sm mb-3">Recommended Actions</h3>
-                <div className="border rounded-md overflow-hidden">
-                  <div className="divide-y">
-                    {data.recommendations.map((rec, index) => (
-                      <div key={index} className="p-3 flex">
-                        <div className="mr-3 mt-0.5">
-                          <div className="h-5 w-5 rounded-full bg-primary text-white flex items-center justify-center text-xs">
-                            {index + 1}
-                          </div>
-                        </div>
-                        <p className="text-sm">{rec}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
+        ) : !data || data.nodes.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <BarChartHorizontal className="h-12 w-12 text-slate-400 mb-4" />
+            <p className="text-slate-800 font-medium mb-2">No root cause data available</p>
+            <p className="text-slate-600 text-sm">
+              There isn't enough data to perform a root cause analysis for this log file.
+            </p>
           </div>
         ) : (
-          <div className="py-8 text-center">
-            <Target className="h-16 w-16 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-500 mb-4">Select a log to view root cause analysis</p>
+          <div className="space-y-6">
+            {/* Controls */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="text-sm text-slate-500 mb-1 block">Severity Filter</label>
+                <Select
+                  value={filterSeverity}
+                  onValueChange={setFilterSeverity}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Filter by severity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Severities</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <label className="text-sm text-slate-500 mb-1 block">Node Distance</label>
+                <div className="pt-2">
+                  <Slider 
+                    value={[graphDistance]}
+                    min={50}
+                    max={300}
+                    step={10}
+                    onValueChange={(value) => setGraphDistance(value[0])}
+                  />
+                </div>
+              </div>
+              
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (graphRef.current) {
+                      graphRef.current.zoomToFit(400);
+                    }
+                  }}
+                  className="mt-5"
+                >
+                  Center Graph
+                </Button>
+              </div>
+            </div>
+            
+            {/* Graph */}
+            <div className="h-[400px] border rounded-lg bg-slate-50 overflow-hidden">
+              <ForceGraph2D
+                ref={graphRef}
+                graphData={getFilteredData() as any}
+                nodeLabel={(node: any) => getNodeLabel(node as IssueNode)}
+                nodeColor={(node: any) => getNodeColor(node as IssueNode)}
+                nodeRelSize={6} // Base size, will be modified by the node type
+                linkColor={(link: any) => getLinkColor(link as IssueLink)}
+                linkWidth={(link: any) => (link as IssueLink).strength}
+                linkDirectionalArrowLength={3.5}
+                linkDirectionalArrowRelPos={0.7}
+                linkCurvature={0.25}
+                onNodeClick={(node: any) => handleNodeClick(node as IssueNode)}
+                cooldownTicks={100}
+                nodeCanvasObjectMode={() => "after"}
+                nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+                  const typedNode = node as IssueNode & { x: number, y: number };
+                  const label = getNodeLabel(typedNode);
+                  const fontSize = 12/globalScale;
+                  ctx.font = `${fontSize}px Sans-Serif`;
+                  ctx.textAlign = "center";
+                  ctx.textBaseline = "middle";
+                  ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+                  
+                  // Draw background for text
+                  const textWidth = ctx.measureText(label).width;
+                  const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.5);
+                  
+                  ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+                  ctx.fillRect(
+                    typedNode.x - bckgDimensions[0] / 2,
+                    typedNode.y - bckgDimensions[1] / 2,
+                    bckgDimensions[0],
+                    bckgDimensions[1]
+                  );
+                  
+                  ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+                  ctx.fillText(label, typedNode.x, typedNode.y);
+
+                  // Draw a circle with size based on node type
+                  const size = getNodeSize(typedNode);
+                  ctx.beginPath();
+                  ctx.arc(typedNode.x, typedNode.y, size/2, 0, 2 * Math.PI, false);
+                  ctx.fillStyle = getNodeColor(typedNode);
+                  ctx.fill();
+                }}
+                d3AlphaDecay={0.02}
+                d3VelocityDecay={0.3}
+                warmupTicks={100}
+                linkDirectionalParticles={2}
+                linkDirectionalParticleWidth={2}
+                linkDirectionalParticleSpeed={0.01}
+                dagMode={'none' as any}
+                dagLevelDistance={graphDistance}
+              />
+            </div>
+            
+            {/* Details panel for selected issue */}
+            {selectedIssue && (
+              <div className="border rounded-lg p-4 bg-white">
+                <div className="flex justify-between mb-2">
+                  <h3 className="font-medium text-slate-900">{selectedIssue.name}</h3>
+                  <div className="flex space-x-2">
+                    {renderSeverityBadge(selectedIssue.severity)}
+                    {renderStatusBadge(selectedIssue.status)}
+                  </div>
+                </div>
+                
+                <p className="text-sm text-slate-600 mb-3">{selectedIssue.description}</p>
+                
+                <div className="flex justify-between border-t pt-3">
+                  <div className="text-xs text-slate-500">
+                    Type: <span className="font-medium capitalize">{selectedIssue.type}</span>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedIssue(null)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            )}
+            
+            {/* Summary and recommendations */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border rounded-lg p-4 bg-white">
+                <h3 className="font-medium text-slate-900 mb-2">Analysis Summary</h3>
+                <p className="text-sm text-slate-600">{data.summary}</p>
+              </div>
+              
+              <div className="border rounded-lg p-4 bg-white">
+                <h3 className="font-medium text-slate-900 mb-2">Recommendations</h3>
+                <ul className="space-y-2">
+                  {data.recommendations.map((rec, index) => (
+                    <li key={index} className="text-sm text-slate-600 flex">
+                      <span className="text-primary mr-2">•</span> {rec}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
           </div>
         )}
       </CardContent>
-      
-      <CardFooter className="text-xs text-slate-500">
-        Root cause analysis identifies the underlying factors and their relationships in log issues
-      </CardFooter>
     </Card>
   );
 }

@@ -240,6 +240,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // API route for root cause analysis
+  app.get("/api/logs/:id/root-cause-analysis", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid log ID" });
+      }
+
+      const log = await storage.getLog(id);
+      if (!log) {
+        return res.status(404).json({ message: "Log not found" });
+      }
+
+      const analysis = await storage.getAnalysisResultByLogId(id);
+      if (!analysis) {
+        return res.status(404).json({ message: "Analysis not found" });
+      }
+
+      // Generate a mock root cause analysis with nodes and links
+      // In a real implementation, this would use LLM or a dedicated algorithm
+      const issues = analysis.issues || [];
+      const nodes: any[] = [];
+      const links: any[] = [];
+      
+      // Create nodes for each issue
+      (issues as any[]).forEach((issue: any, index: number) => {
+        // Add the main issue node
+        nodes.push({
+          id: `issue-${index}`,
+          name: issue.title,
+          type: "issue",
+          severity: issue.severity?.toLowerCase() || "medium",
+          status: "investigating",
+          description: issue.description || "No description available"
+        });
+        
+        // Add 1-3 cause nodes for each issue
+        const numCauses = Math.floor(Math.random() * 3) + 1;
+        for (let i = 0; i < numCauses; i++) {
+          const causeId = `cause-${index}-${i}`;
+          const causeSeverity = ["high", "medium", "low"][Math.floor(Math.random() * 3)];
+          
+          nodes.push({
+            id: causeId,
+            name: `Cause ${i+1} of ${issue.title}`,
+            type: "cause",
+            severity: causeSeverity,
+            status: "pending",
+            description: `This is a potential root cause of the issue: ${issue.title}`
+          });
+          
+          // Link cause to issue
+          links.push({
+            source: causeId,
+            target: `issue-${index}`,
+            strength: 3,
+            type: "causes",
+            description: "Directly causes"
+          });
+        }
+        
+        // Add 0-2 effect nodes for each issue
+        const numEffects = Math.floor(Math.random() * 3);
+        for (let i = 0; i < numEffects; i++) {
+          const effectId = `effect-${index}-${i}`;
+          const effectSeverity = ["high", "medium", "low"][Math.floor(Math.random() * 3)];
+          
+          nodes.push({
+            id: effectId,
+            name: `Impact ${i+1} of ${issue.title}`,
+            type: "effect",
+            severity: effectSeverity,
+            status: "investigating",
+            description: `This is a downstream effect of the issue: ${issue.title}`
+          });
+          
+          // Link issue to effect
+          links.push({
+            source: `issue-${index}`,
+            target: effectId,
+            strength: 2,
+            type: "affects",
+            description: "Results in"
+          });
+        }
+      });
+      
+      // Add some relationships between issues if there are multiple
+      if ((issues as any[]).length > 1) {
+        for (let i = 0; i < (issues as any[]).length - 1; i++) {
+          // Link some issues to show relationships (not all, to keep it realistic)
+          if (Math.random() > 0.3) {
+            links.push({
+              source: `issue-${i}`,
+              target: `issue-${i+1}`,
+              strength: 1,
+              type: Math.random() > 0.5 ? "related" : "affects",
+              description: "Related issue"
+            });
+          }
+        }
+      }
+      
+      const rootCauseAnalysis = {
+        nodes,
+        links,
+        summary: `Analysis of ${log.filename} identified ${(issues as any[]).length} issues with ${nodes.length} related factors. The root causes appear to be related to ${(issues as any[]).map((i: any) => i.title.toLowerCase()).join(", ")}. Review the graph visualization to see relationships between issues and their causes.`,
+        recommendations: [
+          "Address high severity causes first to resolve dependent issues",
+          "Monitor effects after implementing fixes to verify resolution",
+          "Document relationships between components for future troubleshooting",
+          `Schedule a review meeting to discuss ${log.filename} findings with the team`
+        ]
+      };
+      
+      res.json(rootCauseAnalysis);
+    } catch (error) {
+      console.error("Error generating root cause analysis:", error);
+      res.status(500).json({ message: "Failed to generate root cause analysis" });
+    }
+  });
+
   // API route to update resolution status
   app.patch("/api/analysis/:id/status", async (req: Request, res: Response) => {
     try {
