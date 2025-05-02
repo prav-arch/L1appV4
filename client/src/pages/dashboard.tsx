@@ -5,10 +5,15 @@ import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { UploadPanel } from "@/components/dashboard/upload-panel";
 import { AnalysisPanel } from "@/components/dashboard/analysis-panel";
 import { SemanticSearch } from "@/components/dashboard/semantic-search";
-import { getStats, getRecentActivities } from "@/lib/api";
+import { IssuesRecommendationsTable } from "@/components/dashboard/issues-recommendations-table";
+import { getStats, getRecentActivities, getLogs, getAnalysisResult } from "@/lib/api";
 import { FileText, CheckCircle, AlertTriangle, Clock } from "lucide-react";
+import { useState } from "react";
+import type { Log } from "@/lib/types";
 
 export default function Dashboard() {
+  const [selectedLog, setSelectedLog] = useState<Log | null>(null);
+  
   const statsQuery = useQuery({
     queryKey: ['/api/stats'],
     queryFn: getStats
@@ -18,6 +23,37 @@ export default function Dashboard() {
     queryKey: ['/api/activities'],
     queryFn: () => getRecentActivities(5) // Limit to 5 recent activities
   });
+  
+  const logsQuery = useQuery({
+    queryKey: ['/api/logs'],
+    queryFn: getLogs
+  });
+  
+  // Only fetch analysis if a log is selected
+  const analysisQuery = useQuery({
+    queryKey: ['/api/logs', selectedLog?.id, 'analysis'],
+    queryFn: () => selectedLog ? getAnalysisResult(selectedLog.id) : Promise.resolve(null),
+    enabled: !!selectedLog
+  });
+  
+  // Function to get the most recent completed log if none is selected
+  const getLatestLog = () => {
+    if (selectedLog) return selectedLog;
+    
+    const completedLogs = logsQuery.data?.filter(
+      log => log.processingStatus === 'completed' || log.processingStatus === 'completed_without_vectors'
+    ) || [];
+    
+    if (completedLogs.length > 0) {
+      // Sort by uploadedAt in descending order
+      const sortedLogs = [...completedLogs].sort(
+        (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+      );
+      return sortedLogs[0];
+    }
+    
+    return null;
+  };
   
   return (
     <MainLayout title="Dashboard">
@@ -63,8 +99,21 @@ export default function Dashboard() {
         />
       </div>
       
+      {/* Issues & Recommendations Table Section */}
+      <IssuesRecommendationsTable 
+        issues={analysisQuery.data?.issues || []}
+        recommendations={analysisQuery.data?.recommendations || []}
+        isLoading={analysisQuery.isLoading}
+        className="mb-6"
+      />
+      
       {/* Analysis Section */}
-      <AnalysisPanel className="mb-6" />
+      <AnalysisPanel 
+        log={getLatestLog()} 
+        analysisResult={analysisQuery.data}
+        isLoading={analysisQuery.isLoading}
+        className="mb-6" 
+      />
       
       {/* Semantic Search Section */}
       <SemanticSearch />
