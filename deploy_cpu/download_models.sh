@@ -9,7 +9,15 @@ mkdir -p models/embeddings
 MODEL_URL="https://huggingface.co/TheBloke/Llama-3.1-7B-GGUF/resolve/main/llama-3.1-7b.Q4_K_M.gguf"
 EMBEDDING_MODEL_URL="https://huggingface.co/datasets/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx"
 
-# Function to download with certificate verification disabled
+# Prompt for Hugging Face token if not provided
+if [ -z "${HF_TOKEN}" ]; then
+    echo "Hugging Face token is required to download LLM models."
+    echo "You can get your token at https://huggingface.co/settings/tokens"
+    read -p "Please enter your Hugging Face token: " HF_TOKEN
+    echo ""
+fi
+
+# Function to download with certificate verification disabled and authentication
 download_with_retry() {
     local url=$1
     local output_file=$2
@@ -20,12 +28,12 @@ download_with_retry() {
     while [ $retry_count -lt $max_retries ] && [ "$success" = false ]; do
         echo "Downloading $output_file (attempt $(($retry_count + 1))/${max_retries})..."
         
-        # Try with wget with certificate verification disabled
-        if wget --no-check-certificate -q --show-progress -c "$url" -O "$output_file.tmp"; then
+        # Try with wget with authentication and certificate verification disabled
+        if wget --no-check-certificate -q --show-progress -c --header="Authorization: Bearer ${HF_TOKEN}" "$url" -O "$output_file.tmp"; then
             success=true
         else
-            # Try with curl with certificate verification disabled
-            if curl -k -L "$url" -o "$output_file.tmp" --progress-bar; then
+            # Try with curl with authentication and certificate verification disabled
+            if curl -k -L -H "Authorization: Bearer ${HF_TOKEN}" "$url" -o "$output_file.tmp" --progress-bar; then
                 success=true
             else
                 echo "Download failed. Retrying in 5 seconds..."
@@ -41,6 +49,7 @@ download_with_retry() {
         return 0
     else
         echo "Failed to download $output_file after $max_retries attempts."
+        echo "Please check if your Hugging Face token is valid and has access to the model."
         return 1
     fi
 }

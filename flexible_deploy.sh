@@ -35,6 +35,11 @@ fi
 # Step 1: Download models
 echo "Step 1: Downloading LLM models..."
 echo "----------------------------"
+# Ask for Hugging Face token
+echo "The LLM models require authentication with Hugging Face."
+echo "Please get your token from https://huggingface.co/settings/tokens"
+read -p "Enter your Hugging Face token: " HF_TOKEN
+export HF_TOKEN
 ./${DEPLOY_PATH}/download_models.sh
 echo ""
 
@@ -92,6 +97,12 @@ sudo systemctl stop telecom-log-analysis
 sudo systemctl stop llm-server
 cd milvus-config && docker-compose down && cd ..
 
+# Ask for Hugging Face token
+echo "The LLM models require authentication with Hugging Face."
+echo "Please get your token from https://huggingface.co/settings/tokens"
+read -p "Enter your Hugging Face token: " HF_TOKEN
+export HF_TOKEN
+
 # Download GPU-optimized model if needed
 echo "Setting up GPU-optimized models..."
 ./deploy/download_models.sh
@@ -102,7 +113,15 @@ echo "Setting up GPU-enabled Milvus..."
 
 # Start Milvus with GPU support
 echo "Starting Milvus with GPU support..."
-cd milvus-config && docker-compose up -d && cd ..
+if command -v docker-compose &> /dev/null; then
+    cd milvus-config && docker-compose up -d && cd ..
+elif command -v docker &> /dev/null; then
+    cd milvus-config && docker compose up -d && cd ..
+else
+    echo "ERROR: Neither docker-compose nor docker compose is available."
+    echo "Please install Docker and Docker Compose before continuing."
+    exit 1
+fi
 
 # Optimize GPU
 echo "Optimizing GPU performance..."
