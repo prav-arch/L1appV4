@@ -1,8 +1,18 @@
 #!/bin/bash
 # Script to setup and deploy Milvus vector database
-# Optimized for Tesla P40 GPU environment
+# Optimized for Tesla P40 GPU environment with CPU fallback
 
 echo "==== Setting up Milvus vector database for telecom log analysis application ===="
+
+# Check if GPU is available
+if command -v nvidia-smi &> /dev/null; then
+    echo "NVIDIA GPU detected. Configuring Milvus for GPU acceleration."
+    USE_GPU=1
+else
+    echo "No NVIDIA GPU detected. Configuring Milvus for CPU-only mode."
+    echo "Note: Vector search performance will be limited without GPU acceleration."
+    USE_GPU=0
+fi
 
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
@@ -26,8 +36,77 @@ fi
 mkdir -p milvus-data
 mkdir -p milvus-config
 
-# Create docker-compose.yml for Milvus
-cat > milvus-config/docker-compose.yml << 'EOL'
+# Create docker-compose.yml for Milvus with conditional GPU support
+if [ "$USE_GPU" -eq 1 ]; then
+    # GPU-enabled Milvus configuration
+    cat > milvus-config/docker-compose.yml << 'EOL'
+version: '3.5'
+
+services:
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/milvus-data/etcd:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/milvus-data/minio:/minio_data
+    command: minio server /minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.3.3
+    runtime: nvidia
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      GPU_ENABLED: "true"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/milvus-data/milvus:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - "etcd"
+      - "minio"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+networks:
+  default:
+    name: milvus
+EOL
+else
+    # CPU-only Milvus configuration
+    cat > milvus-config/docker-compose.yml << 'EOL'
 version: '3.5'
 
 services:
@@ -70,6 +149,7 @@ services:
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
+      GPU_ENABLED: "false"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/milvus-data/milvus:/var/lib/milvus
     ports:
@@ -83,6 +163,7 @@ networks:
   default:
     name: milvus
 EOL
+fi
 
 echo "Milvus configuration created."
 echo "To start Milvus, run: cd milvus-config && docker-compose up -d"

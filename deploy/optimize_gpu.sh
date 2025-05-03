@@ -5,26 +5,44 @@ echo "==== Optimizing Tesla P40 GPU for deep learning workloads ===="
 
 # Check if nvidia-smi is available
 if ! command -v nvidia-smi &> /dev/null; then
-    echo "NVIDIA drivers not found. Installing NVIDIA drivers..."
+    echo "NVIDIA drivers not found."
+    echo "Driver installation is optional if they're already installed elsewhere."
     
-    # Update package list
-    sudo apt-get update
+    read -p "Do you want to install NVIDIA drivers now? (y/n): " install_drivers
     
-    # Install necessary packages
-    sudo apt-get install -y build-essential dkms
-    
-    # Add NVIDIA repository
-    sudo apt-key adv --fetch-keys http://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub
-    echo "deb http://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64 /" | sudo tee /etc/apt/sources.list.d/cuda.list
-    
-    # Update package list again
-    sudo apt-get update
-    
-    # Install NVIDIA drivers and CUDA
-    sudo apt-get install -y cuda-drivers-525 cuda-toolkit-11-8
-    
-    echo "NVIDIA drivers installed. Please reboot the system."
-    exit 0
+    if [[ "$install_drivers" == "y" || "$install_drivers" == "Y" ]]; then
+        echo "Installing NVIDIA drivers..."
+        
+        # Update package list
+        sudo apt-get update
+        
+        # Install necessary packages
+        sudo apt-get install -y build-essential dkms
+        
+        # Add NVIDIA repository
+        sudo apt-key adv --fetch-keys http://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub
+        echo "deb http://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64 /" | sudo tee /etc/apt/sources.list.d/cuda.list
+        
+        # Update package list again
+        sudo apt-get update
+        
+        # Install NVIDIA drivers and CUDA
+        sudo apt-get install -y cuda-drivers-525 cuda-toolkit-11-8
+        
+        echo "NVIDIA drivers installed. Please reboot the system."
+        exit 0
+    else
+        echo "Skipping NVIDIA driver installation."
+        echo "WARNING: GPU acceleration will not be available without proper drivers."
+        echo "You can continue with deployment, but LLM and vector operations will run on CPU only."
+        read -p "Continue without GPU acceleration? (y/n): " continue_deploy
+        if [[ "$continue_deploy" != "y" && "$continue_deploy" != "Y" ]]; then
+            echo "Deployment aborted. Please install NVIDIA drivers and try again."
+            exit 1
+        fi
+    fi
+else
+    echo "NVIDIA drivers already installed. Proceeding with GPU optimization..."
 fi
 
 # Enable persistence mode
