@@ -56,9 +56,8 @@ fi
 # Set batch size according to GPU
 BATCH_SIZE=512
 
-# Check if we're using Meta's original model or the GGUF version
-if [ -f "../../../models/gguf/model_type.info" ] && grep -q "meta_model=true" "../../../models/gguf/model_type.info"; then
-    echo "Using Meta's official Llama 3.1 model..."
+# Check if we're using the Meta or Mistral model
+echo "Using Mistral 7B model..."
     
     # For Meta's original model, we need to install and use a different server
     # Check if transformers and torch are installed
