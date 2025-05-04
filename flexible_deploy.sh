@@ -50,8 +50,10 @@ echo "Step 3: Starting Milvus vector database..."
 echo "----------------------------"
 # Check if docker-compose is installed or use docker compose as alternative
 if command -v docker-compose &> /dev/null; then
+    echo "Using docker-compose command..."
     cd milvus-config && docker-compose up -d && cd ..
 elif command -v docker &> /dev/null; then
+    echo "Using docker compose command..."
     cd milvus-config && docker compose up -d && cd ..
 else
     echo "ERROR: Neither docker-compose nor docker compose is available."
@@ -110,8 +112,10 @@ echo "Setting up GPU-enabled Milvus..."
 # Start Milvus with GPU support
 echo "Starting Milvus with GPU support..."
 if command -v docker-compose &> /dev/null; then
+    echo "Using docker-compose command..."
     cd milvus-config && docker-compose up -d && cd ..
 elif command -v docker &> /dev/null; then
+    echo "Using docker compose command..."
     cd milvus-config && docker compose up -d && cd ..
 else
     echo "ERROR: Neither docker-compose nor docker compose is available."
@@ -235,9 +239,7 @@ echo "Deployment complete!"
 echo "The telecom log analysis application should now be running at:"
 echo "http://localhost:5000"
 echo ""
-echo "Make sure to update the .env file with your specific configuration:"
-echo "- Add your PERPLEXITY_API_KEY if you want to use that service"
-echo "- Update any other configuration variables as needed"
+echo "Make sure to update the .env file with your specific configuration if needed."
 echo ""
 echo "To check status:"
 echo "sudo systemctl status llm-server"

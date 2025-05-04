@@ -8,8 +8,18 @@ echo "Optimized for Tesla P40 GPU"
 echo "========================================================"
 echo ""
 
+# Make all scripts executable and ensure they exist
+if [ ! -d "deploy" ]; then
+    echo "ERROR: 'deploy' directory not found. Make sure you're running this script from the correct directory."
+    exit 1
+fi
+
+# List available scripts for debugging
+echo "Available scripts in the deploy directory:"
+ls -la deploy/
+
 # Make all scripts executable
-chmod +x deploy/*.sh
+chmod +x deploy/*.sh 2>/dev/null || echo "Warning: Could not make all scripts executable. Some scripts might be missing."
 
 # Step 0: Optimize GPU
 echo "Step 0: Optimizing Tesla P40 GPU for deep learning workloads..."
@@ -67,9 +77,7 @@ echo "Deployment complete!"
 echo "The telecom log analysis application should now be running at:"
 echo "http://localhost:5000"
 echo ""
-echo "Make sure to update the .env file with your specific configuration:"
-echo "- Add your PERPLEXITY_API_KEY if you want to use that service"
-echo "- Update any other configuration variables as needed"
+echo "Make sure to update the .env file with your specific configuration if needed."
 echo ""
 echo "To check status:"
 echo "sudo systemctl status llm-server"

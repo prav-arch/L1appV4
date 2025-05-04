@@ -8,8 +8,18 @@ echo "CPU-Only Configuration"
 echo "========================================================"
 echo ""
 
+# Make all scripts executable and ensure they exist
+if [ ! -d "deploy_cpu" ]; then
+    echo "ERROR: 'deploy_cpu' directory not found. Make sure you're running this script from the correct directory."
+    exit 1
+fi
+
+# List available scripts for debugging
+echo "Available scripts in the deploy_cpu directory:"
+ls -la deploy_cpu/
+
 # Make all scripts executable
-chmod +x deploy_cpu/*.sh
+chmod +x deploy_cpu/*.sh 2>/dev/null || echo "Warning: Could not make all scripts executable. Some scripts might be missing."
 
 # Step 1: Download models
 echo "Step 1: Downloading LLM models..."
@@ -61,9 +71,7 @@ echo "Deployment complete!"
 echo "The telecom log analysis application should now be running at:"
 echo "http://localhost:5000"
 echo ""
-echo "Make sure to update the .env file with your specific configuration:"
-echo "- Add your PERPLEXITY_API_KEY if you want to use that service"
-echo "- Update any other configuration variables as needed"
+echo "Make sure to update the .env file with your specific configuration if needed."
 echo ""
 echo "To check status:"
 echo "sudo systemctl status llm-server"
