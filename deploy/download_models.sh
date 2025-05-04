@@ -53,7 +53,32 @@ download_with_retry() {
 # Download the GPU-optimized model
 echo "Downloading GPU-optimized LLM model (this may take a while)..."
 if [ ! -f "models/gguf/llama-3.1-8b.Q5_K_M.gguf" ]; then
+    echo "Attempting automatic download..."
     download_with_retry "$MODEL_URL" "models/gguf/llama-3.1-8b.Q5_K_M.gguf"
+    
+    # If download failed, provide manual command
+    if [ ! -f "models/gguf/llama-3.1-8b.Q5_K_M.gguf" ]; then
+        echo "------------------------------------------------------"
+        echo "MANUAL DOWNLOAD REQUIRED"
+        echo "------------------------------------------------------"
+        echo "Automatic download failed. Please copy and run this command manually:"
+        echo ""
+        echo "mkdir -p models/gguf"
+        echo "curl -k -L -H \"Authorization: Bearer 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\" \\"
+        echo "  https://huggingface.co/TheBloke/Llama-3.1-8B-GGUF/resolve/main/llama-3.1-8b.Q5_K_M.gguf \\"
+        echo "  -o models/gguf/llama-3.1-8b.Q5_K_M.gguf"
+        echo ""
+        echo "OR"
+        echo ""
+        echo "mkdir -p models/gguf"
+        echo "wget --no-check-certificate -q --show-progress \\"
+        echo "  --header=\"Authorization: Bearer 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\" \\"
+        echo "  https://huggingface.co/TheBloke/Llama-3.1-8B-GGUF/resolve/main/llama-3.1-8b.Q5_K_M.gguf \\"
+        echo "  -O models/gguf/llama-3.1-8b.Q5_K_M.gguf"
+        echo "------------------------------------------------------"
+        echo "After downloading, run this script again to continue deployment."
+        exit 1
+    fi
 else
     echo "LLM model already exists, skipping download"
 fi
@@ -61,7 +86,32 @@ fi
 # Download the embedding model
 echo "Downloading embedding model..."
 if [ ! -f "models/embeddings/model.onnx" ]; then
+    echo "Attempting automatic download..."
     download_with_retry "$EMBEDDING_MODEL_URL" "models/embeddings/model.onnx"
+    
+    # If download failed, provide manual command
+    if [ ! -f "models/embeddings/model.onnx" ]; then
+        echo "------------------------------------------------------"
+        echo "MANUAL DOWNLOAD REQUIRED"
+        echo "------------------------------------------------------"
+        echo "Automatic download failed. Please copy and run this command manually:"
+        echo ""
+        echo "mkdir -p models/embeddings"
+        echo "curl -k -L -H \"Authorization: Bearer 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\" \\"
+        echo "  https://huggingface.co/datasets/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx \\"
+        echo "  -o models/embeddings/model.onnx"
+        echo ""
+        echo "OR"
+        echo ""
+        echo "mkdir -p models/embeddings"
+        echo "wget --no-check-certificate -q --show-progress \\"
+        echo "  --header=\"Authorization: Bearer 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\" \\"
+        echo "  https://huggingface.co/datasets/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx \\"
+        echo "  -O models/embeddings/model.onnx"
+        echo "------------------------------------------------------"
+        echo "After downloading, run this script again to continue deployment."
+        exit 1
+    fi
 else
     echo "Embedding model already exists, skipping download"
 fi

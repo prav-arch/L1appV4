@@ -95,9 +95,9 @@ cd milvus-config && docker-compose down && cd ..
 
 # Ask for Hugging Face token
 echo "The LLM models require authentication with Hugging Face."
-echo "Please get your token from https://huggingface.co/settings/tokens"
-read -p "Enter your Hugging Face token: " HF_TOKEN
-export HF_TOKEN
+echo "A Hugging Face token is already provided in the script for convenience."
+echo "If you encounter download issues, you can manually download the models using the commands"
+echo "that will be displayed if the automatic download fails."
 
 # Download GPU-optimized model if needed
 echo "Setting up GPU-optimized models..."
