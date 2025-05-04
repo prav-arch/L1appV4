@@ -35,11 +35,7 @@ fi
 # Step 1: Download models
 echo "Step 1: Downloading LLM models..."
 echo "----------------------------"
-# Ask for Hugging Face token
-echo "The LLM models require authentication with Hugging Face."
-echo "Please get your token from https://huggingface.co/settings/tokens"
-read -p "Enter your Hugging Face token: " HF_TOKEN
-export HF_TOKEN
+# Using hardcoded Hugging Face token
 ./${DEPLOY_PATH}/download_models.sh
 echo ""
 

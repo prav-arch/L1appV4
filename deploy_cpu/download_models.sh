@@ -9,13 +9,9 @@ mkdir -p models/embeddings
 MODEL_URL="https://huggingface.co/TheBloke/Llama-3.1-7B-GGUF/resolve/main/llama-3.1-7b.Q4_K_M.gguf"
 EMBEDDING_MODEL_URL="https://huggingface.co/datasets/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx"
 
-# Prompt for Hugging Face token if not provided
-if [ -z "${HF_TOKEN}" ]; then
-    echo "Hugging Face token is required to download LLM models."
-    echo "You can get your token at https://huggingface.co/settings/tokens"
-    read -p "Please enter your Hugging Face token: " HF_TOKEN
-    echo ""
-fi
+# Set Hugging Face token 
+HF_TOKEN="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"
+echo "Using provided Hugging Face token for authentication"
 
 # Function to download with certificate verification disabled and authentication
 download_with_retry() {
