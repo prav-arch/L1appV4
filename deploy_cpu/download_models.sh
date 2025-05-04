@@ -9,7 +9,7 @@ mkdir -p models/embeddings
 MODEL_URL="https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/model.safetensors"
 MODEL_TOKENIZER_URL="https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/tokenizer.json"
 MODEL_CONFIG_URL="https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/config.json"
-EMBEDDING_MODEL_URL="https://huggingface.co/datasets/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx"
+EMBEDDING_MODEL_URL="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx"
 
 # Set Hugging Face token 
 HF_TOKEN="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"
@@ -168,7 +168,7 @@ if [ ! -f "models/embeddings/model.onnx" ]; then
         echo ""
         echo "mkdir -p models/embeddings"
         echo "curl -k -L -H \"Authorization: Bearer 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\" \\"
-        echo "  https://huggingface.co/datasets/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx \\"
+        echo "  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx \\"
         echo "  -o models/embeddings/model.onnx"
         echo ""
         echo "OR"
@@ -176,7 +176,7 @@ if [ ! -f "models/embeddings/model.onnx" ]; then
         echo "mkdir -p models/embeddings"
         echo "wget --no-check-certificate -q --show-progress \\"
         echo "  --header=\"Authorization: Bearer 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\" \\"
-        echo "  https://huggingface.co/datasets/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx \\"
+        echo "  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx \\"
         echo "  -O models/embeddings/model.onnx"
         echo "------------------------------------------------------"
         echo "After downloading, run this script again to continue deployment."
