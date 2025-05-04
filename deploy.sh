@@ -32,7 +32,16 @@ echo ""
 # Step 3: Start Milvus
 echo "Step 3: Starting Milvus vector database..."
 echo "----------------------------"
-cd milvus-config && docker-compose up -d && cd ..
+# Check if docker-compose is installed or use docker compose as alternative
+if command -v docker-compose &> /dev/null; then
+    cd milvus-config && docker-compose up -d && cd ..
+elif command -v docker &> /dev/null; then
+    cd milvus-config && docker compose up -d && cd ..
+else
+    echo "ERROR: Neither docker-compose nor docker compose is available."
+    echo "Please install Docker and Docker Compose before continuing."
+    exit 1
+fi
 echo ""
 
 # Step 4: Deploy the application

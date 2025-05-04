@@ -56,13 +56,14 @@ services:
     depends_on:
       - "etcd"
       - "minio"
+    # Using the full form for deployment resource reservations to avoid "unknown shorthand flag 'd'" error
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: ["gpu"]
 
 networks:
   default:
