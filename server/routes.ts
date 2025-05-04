@@ -2,10 +2,12 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import path from "path";
+import { WebSocketServer } from 'ws';
 import { storage } from "./storage";
 import { logParser } from "./services/log-parser";
 import { llmService } from "./services/llm";
 import { milvusService } from "./services/milvus";
+import { perplexityService } from "./services/perplexity";
 import { z } from "zod";
 
 // Configure multer for file uploads

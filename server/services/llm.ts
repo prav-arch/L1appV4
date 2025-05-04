@@ -240,7 +240,7 @@ Analyze the above logs and respond with ONLY the JSON output.
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'mistral-7b', // Example model name
+          model: 'mistral-7b-v0.1', // Using Mistral 7B v0.1 model
           prompt: prompt,
           max_tokens: 2048,
           temperature: 0.1,
@@ -317,7 +317,7 @@ Provide a brief, helpful response about what was found in the logs related to th
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'mistral-7b', // Example model name
+          model: 'mistral-7b-v0.1', // Using Mistral 7B v0.1 model
           prompt: prompt,
           max_tokens: 512,
           temperature: 0.3,
