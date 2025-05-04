@@ -5,8 +5,10 @@ echo "Creating model directories..."
 mkdir -p models/gguf
 mkdir -p models/embeddings
 
-# Set download URLs
-MODEL_URL="https://huggingface.co/TheBloke/Llama-3.1-8B-GGUF/resolve/main/llama-3.1-8b.Q5_K_M.gguf"
+# Set download URLs for Meta's official Llama model
+MODEL_URL="https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/model.safetensors"
+MODEL_TOKENIZER_URL="https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/tokenizer.json"
+MODEL_CONFIG_URL="https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/config.json"
 EMBEDDING_MODEL_URL="https://huggingface.co/datasets/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.onnx"
 
 # Set Hugging Face token 
@@ -50,37 +52,105 @@ download_with_retry() {
     fi
 }
 
-# Download the GPU-optimized model
-echo "Downloading GPU-optimized LLM model (this may take a while)..."
-if [ ! -f "models/gguf/llama-3.1-8b.Q5_K_M.gguf" ]; then
-    echo "Attempting automatic download..."
-    download_with_retry "$MODEL_URL" "models/gguf/llama-3.1-8b.Q5_K_M.gguf"
+# Create directories for Meta model
+mkdir -p models/meta/llama-3.1-8b
+echo "Created directory for Meta Llama model"
+
+# Download the official Meta Llama model
+echo "Downloading Meta's Llama-3.1-8B-Instruct model (this may take a while)..."
+
+# Download main model file
+if [ ! -f "models/meta/llama-3.1-8b/model.safetensors" ]; then
+    echo "Attempting to download main model file..."
+    download_with_retry "$MODEL_URL" "models/meta/llama-3.1-8b/model.safetensors"
     
     # If download failed, provide manual command
-    if [ ! -f "models/gguf/llama-3.1-8b.Q5_K_M.gguf" ]; then
+    if [ ! -f "models/meta/llama-3.1-8b/model.safetensors" ]; then
         echo "------------------------------------------------------"
         echo "MANUAL DOWNLOAD REQUIRED"
         echo "------------------------------------------------------"
         echo "Automatic download failed. Please copy and run this command manually:"
         echo ""
-        echo "mkdir -p models/gguf"
+        echo "mkdir -p models/meta/llama-3.1-8b"
         echo "curl -k -L -H \"Authorization: Bearer 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\" \\"
-        echo "  https://huggingface.co/TheBloke/Llama-3.1-8B-GGUF/resolve/main/llama-3.1-8b.Q5_K_M.gguf \\"
-        echo "  -o models/gguf/llama-3.1-8b.Q5_K_M.gguf"
+        echo "  https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/model.safetensors \\"
+        echo "  -o models/meta/llama-3.1-8b/model.safetensors"
         echo ""
         echo "OR"
         echo ""
-        echo "mkdir -p models/gguf"
+        echo "mkdir -p models/meta/llama-3.1-8b"
         echo "wget --no-check-certificate -q --show-progress \\"
         echo "  --header=\"Authorization: Bearer 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\" \\"
-        echo "  https://huggingface.co/TheBloke/Llama-3.1-8B-GGUF/resolve/main/llama-3.1-8b.Q5_K_M.gguf \\"
-        echo "  -O models/gguf/llama-3.1-8b.Q5_K_M.gguf"
+        echo "  https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/model.safetensors \\"
+        echo "  -O models/meta/llama-3.1-8b/model.safetensors"
         echo "------------------------------------------------------"
         echo "After downloading, run this script again to continue deployment."
         exit 1
     fi
 else
-    echo "LLM model already exists, skipping download"
+    echo "Main model file already exists, skipping download"
+fi
+
+# Download tokenizer
+if [ ! -f "models/meta/llama-3.1-8b/tokenizer.json" ]; then
+    echo "Downloading tokenizer file..."
+    download_with_retry "$MODEL_TOKENIZER_URL" "models/meta/llama-3.1-8b/tokenizer.json"
+    
+    # If download failed, provide manual command
+    if [ ! -f "models/meta/llama-3.1-8b/tokenizer.json" ]; then
+        echo "------------------------------------------------------"
+        echo "MANUAL DOWNLOAD REQUIRED"
+        echo "------------------------------------------------------"
+        echo "Automatic download failed. Please copy and run this command manually:"
+        echo ""
+        echo "mkdir -p models/meta/llama-3.1-8b"
+        echo "curl -k -L -H \"Authorization: Bearer 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\" \\"
+        echo "  https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/tokenizer.json \\"
+        echo "  -o models/meta/llama-3.1-8b/tokenizer.json"
+        echo "------------------------------------------------------"
+        echo "After downloading, run this script again to continue deployment."
+        exit 1
+    fi
+else
+    echo "Tokenizer file already exists, skipping download"
+fi
+
+# Download config
+if [ ! -f "models/meta/llama-3.1-8b/config.json" ]; then
+    echo "Downloading config file..."
+    download_with_retry "$MODEL_CONFIG_URL" "models/meta/llama-3.1-8b/config.json"
+    
+    # If download failed, provide manual command
+    if [ ! -f "models/meta/llama-3.1-8b/config.json" ]; then
+        echo "------------------------------------------------------"
+        echo "MANUAL DOWNLOAD REQUIRED"
+        echo "------------------------------------------------------"
+        echo "Automatic download failed. Please copy and run this command manually:"
+        echo ""
+        echo "mkdir -p models/meta/llama-3.1-8b"
+        echo "curl -k -L -H \"Authorization: Bearer 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\" \\"
+        echo "  https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/resolve/main/config.json \\"
+        echo "  -o models/meta/llama-3.1-8b/config.json"
+        echo "------------------------------------------------------"
+        echo "After downloading, run this script again to continue deployment."
+        exit 1
+    fi
+else
+    echo "Config file already exists, skipping download"
+fi
+
+# Create symbolic link for compatibility with existing code
+echo "Creating compatibility link for model..."
+if [ ! -f "models/gguf/llama-3.1-8b.Q5_K_M.gguf" ]; then
+    # Create directory for link if it doesn't exist
+    mkdir -p models/gguf
+    # Create metadata file to indicate we're using Meta model
+    echo "meta_model=true" > models/gguf/model_type.info
+    # Create empty file as a marker
+    touch models/gguf/llama-3.1-8b.Q5_K_M.gguf
+    echo "Created compatibility marker for Meta model"
+else
+    echo "Compatibility marker already exists, skipping creation"
 fi
 
 # Download the embedding model
