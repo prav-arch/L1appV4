@@ -49,11 +49,12 @@ elif [ $CONTEXT_SIZE -lt 1024 ]; then
     CONTEXT_SIZE=1024
 fi
 
-# Start the server
+# Start the server with Mistral model
+echo "Using Mistral 7B model with llama.cpp server..."
 echo "Starting llama.cpp server with $SERVER_THREADS threads and $CONTEXT_SIZE context size..."
 cd build
 ./server \
-    -m ../../../models/gguf/llama-3.1-7b.Q4_K_M.gguf \
+    -m ../../../models/gguf/mistral-7b-v0.1.Q4_K_M.gguf \
     --host 0.0.0.0 \
     --port 8080 \
     --ctx-size $CONTEXT_SIZE \

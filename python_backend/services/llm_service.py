@@ -14,8 +14,9 @@ class LLMService:
         """Initialize with configured endpoints"""
         # Get LLM endpoints from environment variables or use defaults
         self.inference_url = os.environ.get('LLM_INFERENCE_URL', 'http://localhost:8080/v1/completions')
-        self.embedding_url = os.environ.get('LLM_EMBEDDING_URL', 'http://localhost:8080/v1/embeddings')
-        self.model_name = os.environ.get('LLM_MODEL', 'mistral-7b')
+        self.embedding_url = os.environ.get('LLM_EMBEDDING_URL', 'http://localhost:8080/v1/embeddings') 
+        self.chat_url = os.environ.get('LLM_CHAT_URL', 'http://localhost:8080/v1/chat/completions')
+        self.model_name = os.environ.get('LLM_MODEL', 'mistral-7b-v0.1')
         
         # Check if LLM service is available
         self.connection_error = None

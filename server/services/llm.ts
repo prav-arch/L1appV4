@@ -56,7 +56,7 @@ class LLMService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           input: "connectivity test",
-          model: 'all-MiniLM-L6-v2'
+          model: 'all-mpnet-base-v2'
         }),
         signal: controller.signal
       });
@@ -111,7 +111,7 @@ class LLMService {
         },
         body: JSON.stringify({
           input: text,
-          model: 'all-MiniLM-L6-v2' // Example embedding model
+          model: 'all-mpnet-base-v2' // Using MPNet embedding model
         }),
       });
       
