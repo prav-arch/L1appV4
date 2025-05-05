@@ -5,9 +5,18 @@ echo "====================================================="
 echo "Setting up Milvus vector database for telecom log analysis"
 echo "====================================================="
 
+# Define default and custom paths
+DEFAULT_MILVUS_CONFIG_DIR="milvus-config"
+MILVUS_CONFIG_DIR="${MILVUS_CONFIG_PATH:-$DEFAULT_MILVUS_CONFIG_DIR}"
+DEFAULT_VOLUMES_DIR="$MILVUS_CONFIG_DIR/volumes"
+VOLUMES_DIR="${VOLUMES_PATH:-$DEFAULT_VOLUMES_DIR}"
+
+echo "Using Milvus config directory: $MILVUS_CONFIG_DIR"
+echo "Using volumes directory: $VOLUMES_DIR"
+
 # Create milvus-config directory
-mkdir -p milvus-config
-cd milvus-config
+mkdir -p "$MILVUS_CONFIG_DIR"
+cd "$MILVUS_CONFIG_DIR"
 
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
@@ -41,7 +50,7 @@ services:
       - ETCD_AUTO_COMPACTION_RETENTION=1000
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
     volumes:
-      - ${PWD}/volumes/etcd:/etcd
+      - ${VOLUMES_DIR}/etcd:/etcd
     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
 
   minio:
@@ -51,7 +60,7 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     volumes:
-      - ${PWD}/volumes/minio:/minio_data
+      - ${VOLUMES_DIR}/minio:/minio_data
     command: minio server /minio_data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
@@ -67,7 +76,7 @@ services:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
     volumes:
-      - ${PWD}/volumes/milvus:/var/lib/milvus
+      - ${VOLUMES_DIR}/milvus:/var/lib/milvus
     ports:
       - "19530:19530"
       - "9091:9091"
@@ -81,11 +90,11 @@ networks:
 EOL
 
 # Create volumes directory structure
-mkdir -p volumes/etcd volumes/minio volumes/milvus
+mkdir -p "${VOLUMES_DIR}/etcd" "${VOLUMES_DIR}/minio" "${VOLUMES_DIR}/milvus"
 
 echo "Milvus configuration created successfully."
-echo "To start Milvus, run: cd milvus-config && $DOCKER_COMPOSE up -d"
-echo "To stop Milvus, run: cd milvus-config && $DOCKER_COMPOSE down"
+echo "To start Milvus, run: cd $MILVUS_CONFIG_DIR && $DOCKER_COMPOSE up -d"
+echo "To stop Milvus, run: cd $MILVUS_CONFIG_DIR && $DOCKER_COMPOSE down"
 
 # Return to the original directory
 cd ..

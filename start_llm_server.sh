@@ -5,19 +5,25 @@ echo "====================================================="
 echo "Starting LLM server for telecom log analysis platform"
 echo "====================================================="
 
+# Define default and custom paths
+DEFAULT_MODELS_DIR="models"
+MODELS_DIR="${MODELS_PATH:-$DEFAULT_MODELS_DIR}"
+
+echo "Using models directory: $MODELS_DIR"
+
 # Check if models are downloaded
-if [ ! -f "models/gguf/mistral-7b-v0.1.Q4_K_M.gguf" ]; then
+if [ ! -f "$MODELS_DIR/gguf/mistral-7b-v0.1.Q4_K_M.gguf" ]; then
     echo "Models not found. Downloading now..."
-    ./download_models.sh
+    MODELS_PATH="$MODELS_DIR" ./download_models.sh
     if [ $? -ne 0 ]; then
-        echo "Error downloading models. Please run ./download_models.sh manually."
+        echo "Error downloading models. Please run MODELS_PATH=\"$MODELS_DIR\" ./download_models.sh manually."
         exit 1
     fi
 fi
 
 # Default settings
 PORT=8080
-MODEL_PATH="models/gguf/mistral-7b-v0.1.Q4_K_M.gguf"
+MODEL_PATH="$MODELS_DIR/gguf/mistral-7b-v0.1.Q4_K_M.gguf"
 CONTEXT_SIZE=4096
 
 # Check if llama-cpp-python is installed
