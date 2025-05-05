@@ -25,18 +25,20 @@ if [ -f "$MISTRAL_Q4_FILE" ]; then
 else
     echo "Downloading Mistral Q4 model (approx. 4GB)..."
     if command -v wget &> /dev/null; then
-        wget -c "$MISTRAL_Q4_URL" -O "$MISTRAL_Q4_FILE" || curl -L "$MISTRAL_Q4_URL" -o "$MISTRAL_Q4_FILE"
+        # wget with --no-check-certificate to bypass SSL validation
+        wget --no-check-certificate -c "$MISTRAL_Q4_URL" -O "$MISTRAL_Q4_FILE" || curl -k -L "$MISTRAL_Q4_URL" -o "$MISTRAL_Q4_FILE"
     else
-        curl -L "$MISTRAL_Q4_URL" -o "$MISTRAL_Q4_FILE"
+        # curl with -k flag to bypass SSL validation
+        curl -k -L "$MISTRAL_Q4_URL" -o "$MISTRAL_Q4_FILE"
     fi
     
     if [ $? -ne 0 ]; then
         echo "Error downloading Mistral Q4 model."
         echo ""
         echo "Try downloading manually with:"
-        echo "wget -c $MISTRAL_Q4_URL -O $MODELS_DIR/gguf/$MISTRAL_Q4_FILE"
+        echo "wget --no-check-certificate -c $MISTRAL_Q4_URL -O $MODELS_DIR/gguf/$MISTRAL_Q4_FILE"
         echo "or"
-        echo "curl -L $MISTRAL_Q4_URL -o $MODELS_DIR/gguf/$MISTRAL_Q4_FILE"
+        echo "curl -k -L $MISTRAL_Q4_URL -o $MODELS_DIR/gguf/$MISTRAL_Q4_FILE"
         exit 1
     fi
     echo "Mistral Q4 model downloaded successfully."
