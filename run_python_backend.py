@@ -1,75 +1,105 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Script to run the Python backend for the Telecom Log Analysis Application
 """
-
 import os
 import sys
 import subprocess
-import pkg_resources
-
-# Check required packages
-REQUIRED_PACKAGES = [
-    'flask',
-    'flask-cors',
-    'pymilvus',
-    'python-dotenv',
-    'requests'
-]
+import shutil
+from pathlib import Path
 
 def check_and_install_requirements():
     """Check if all required packages are installed and install them if necessary"""
-    missing = []
+    required_packages = [
+        "flask",
+        "flask-cors",
+        "pymilvus",
+        "python-dotenv",
+        "requests",
+        "scapy",
+        "pyshark"
+    ]
     
-    for package in REQUIRED_PACKAGES:
-        try:
-            pkg_resources.get_distribution(package)
-        except pkg_resources.DistributionNotFound:
-            missing.append(package)
+    try:
+        # Check if pip is available
+        subprocess.run([sys.executable, "-m", "pip", "--version"], 
+                      check=True, capture_output=True)
+        
+        # Install required packages
+        for package in required_packages:
+            try:
+                __import__(package.replace("-", "_"))
+                print(f"✓ {package} is already installed")
+            except ImportError:
+                print(f"Installing {package}...")
+                subprocess.run([sys.executable, "-m", "pip", "install", package],
+                              check=True)
+                print(f"✓ {package} installed successfully")
+    except Exception as e:
+        print(f"Error installing requirements: {e}")
+        print("Please install the required packages manually:")
+        print(" ".join(required_packages))
+        return False
     
-    if missing:
-        print(f"Installing missing packages: {', '.join(missing)}")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
-        print("All required packages installed successfully.")
+    return True
 
 def ensure_directory_structure():
     """Ensure Python backend directory structure exists"""
     directories = [
-        'python_backend',
-        'python_backend/services',
+        "python_backend",
+        "python_backend/services",
+        "uploads",
+        "data",
+        "data/fine_tuning"
     ]
     
     for directory in directories:
-        os.makedirs(directory, exist_ok=True)
-    
-    # Create empty __init__.py files if they don't exist
-    init_files = [
-        'python_backend/__init__.py',
-        'python_backend/services/__init__.py',
-    ]
-    
-    for init_file in init_files:
-        if not os.path.exists(init_file):
-            with open(init_file, 'w') as f:
-                f.write("# This file is intentionally left empty\n")
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        
+    print("✓ Directory structure verified")
+    return True
 
 def main():
     """Main entry point"""
+    print("=" * 70)
+    print("Telecom Log Analysis Platform - Python Backend")
+    print("=" * 70)
+    
+    # Check if Python is at least version 3.8
+    if sys.version_info < (3, 8):
+        print("Error: Python 3.8 or higher is required")
+        sys.exit(1)
+    
     # Check and install requirements
-    check_and_install_requirements()
+    if not check_and_install_requirements():
+        sys.exit(1)
     
     # Ensure directory structure
-    ensure_directory_structure()
+    if not ensure_directory_structure():
+        sys.exit(1)
     
-    # Set environment variables if needed
-    os.environ.setdefault('FLASK_APP', 'python_backend.app')
-    os.environ.setdefault('FLASK_ENV', 'development')
+    # Check if the app.py file exists
+    app_path = Path("python_backend/app.py")
+    if not app_path.exists():
+        print("Error: python_backend/app.py not found")
+        sys.exit(1)
     
-    # Run Flask application
-    from python_backend.app import app
+    print("\nStarting Python backend...")
     
-    port = int(os.environ.get('PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    # Set environment variables
+    os.environ["FLASK_APP"] = "python_backend/app.py"
+    os.environ["FLASK_ENV"] = "development"
+    os.environ["FLASK_RUN_HOST"] = "0.0.0.0"
+    os.environ["FLASK_RUN_PORT"] = "5001"
+    
+    # Start the Flask server
+    try:
+        subprocess.run([sys.executable, "-m", "flask", "run"], check=True)
+    except KeyboardInterrupt:
+        print("\nShutting down Python backend...")
+    except Exception as e:
+        print(f"Error starting Flask server: {e}")
+        sys.exit(1)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -1,764 +1,304 @@
+"""
+Main Flask application for the Telecom Log Analysis platform
+"""
 import os
 import json
-import tempfile
-import uuid
+import time
 from datetime import datetime
-from flask import Flask, request, jsonify
+from typing import Dict, List, Any, Optional, Union
+import uuid
+import logging
+from pathlib import Path
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from dotenv import load_dotenv
-import threading
+from werkzeug.utils import secure_filename
 
-# Import services
-from services.storage import MemStorage
-from services.log_parser import LogParser
-from services.llm_service import LLMService
-from services.milvus_service import MilvusService
-from services.pcap_analyzer import PcapAnalyzer
-from services.llm_fine_tuning import fine_tuning_service
-
-# Load environment variables
-load_dotenv()
+# Setup basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize Flask app
-app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+app = Flask(__name__, static_folder='../client/dist')
+CORS(app)
 
-# Create uploads directory if it doesn't exist
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Constants
+UPLOAD_FOLDER = Path('uploads')
+UPLOAD_FOLDER.mkdir(exist_ok=True)
+ALLOWED_EXTENSIONS = {'txt', 'log', 'pcap'}
 
-# Initialize services
-storage = MemStorage()
-log_parser = LogParser()
-llm_service = LLMService()
-milvus_service = MilvusService()
-pcap_analyzer = PcapAnalyzer()
+# In-memory data stores (replace with database in production)
+logs_data = []
+analysis_results = []
+activities = []
+embeddings = []
 
-# Background processing tasks
-processing_tasks = {}
+# Basic statistics
+stats = {
+    "analyzedLogs": 0,
+    "issuesResolved": 0,
+    "pendingIssues": 0,
+    "avgResolutionTime": "0h"
+}
 
+# Helper functions
+def allowed_file(filename):
+    """Check if file has an allowed extension"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def generate_id():
+    """Generate a unique ID"""
+    return len(logs_data) + 1
+
+# API Routes
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     """Get statistics for the dashboard"""
-    try:
-        stats = storage.get_stats()
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(stats)
 
 @app.route('/api/activities', methods=['GET'])
 def get_activities():
     """Get recent activities"""
-    try:
-        limit = request.args.get('limit', default=10, type=int)
-        activities = storage.get_recent_activities(limit)
-        return jsonify(activities)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(activities)
 
 @app.route('/api/logs/upload', methods=['POST'])
 def upload_log():
     """Upload a log file for analysis"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-        
-        file = request.files['file']
-        if not file.filename:
-            return jsonify({"error": "No file selected"}), 400
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = UPLOAD_FOLDER / filename
+        file.save(file_path)
         
         # Read file content
-        content = file.read().decode('utf-8')
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
         
-        # Validate file is a telecom log
-        if not log_parser.is_valid_telecom_log(content):
-            return jsonify({"error": "Invalid telecom log format"}), 400
-        
-        # Create log record
-        log_data = {
-            "filename": file.filename,
-            "originalContent": content,
-            "fileSize": len(content),
-            "processingStatus": "pending"
+        # Create log entry
+        log_id = generate_id()
+        log_entry = {
+            "id": log_id,
+            "filename": filename,
+            "size": os.path.getsize(file_path),
+            "uploadDate": datetime.now().isoformat(),
+            "status": "processing",
+            "type": filename.split('.')[-1],
+            "content": content[:1000] + "..." if len(content) > 1000 else content  # Truncate for storage
         }
+        logs_data.append(log_entry)
         
-        log = storage.create_log(log_data)
+        # Add activity
+        activities.append({
+            "id": len(activities) + 1,
+            "type": "upload",
+            "description": f"Uploaded log file: {filename}",
+            "timestamp": datetime.now().isoformat(),
+            "user": "system"
+        })
         
-        # Create activity record
-        activity_data = {
-            "logId": log["id"],
-            "activityType": "upload",
-            "description": f"Log '{file.filename}' uploaded",
-            "status": "completed"
-        }
-        storage.create_activity(activity_data)
+        # Process log asynchronously
+        # In a real app, this would be a background task
+        process_log_file(log_id, content)
         
-        # Start processing in background
-        threading.Thread(target=process_log_file, args=(log["id"], content)).start()
-        
-        return jsonify({"id": log["id"]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"id": log_id, "message": "File uploaded and processing started"}), 201
+    
+    return jsonify({"error": "File type not allowed"}), 400
 
 @app.route('/api/logs/<int:log_id>', methods=['GET'])
 def get_log(log_id):
     """Get a specific log"""
-    try:
-        log = storage.get_log(log_id)
-        if not log:
-            return jsonify({"error": "Log not found"}), 404
-        return jsonify(log)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    for log in logs_data:
+        if log["id"] == log_id:
+            return jsonify(log)
+    
+    return jsonify({"error": "Log not found"}), 404
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     """Get all logs"""
-    try:
-        logs = storage.get_all_logs()
-        return jsonify(logs)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(logs_data)
 
 @app.route('/api/logs/<int:log_id>/analysis', methods=['GET'])
 def get_analysis(log_id):
     """Get analysis result for a log"""
-    try:
-        analysis = storage.get_analysis_result_by_log_id(log_id)
-        if not analysis:
-            return jsonify({"error": "Analysis not found"}), 404
-        return jsonify(analysis)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    for result in analysis_results:
+        if result["logId"] == log_id:
+            return jsonify(result)
+    
+    return jsonify({"error": "Analysis not found"}), 404
 
 @app.route('/api/search', methods=['POST'])
 def search():
     """Semantic search in logs"""
-    try:
-        data = request.json
-        query = data.get('query')
-        
-        if not query:
-            return jsonify({"error": "No query provided"}), 400
-        
-        # Try vector search first
-        try:
-            # Generate embedding for query
-            query_embedding = llm_service.generate_embedding(query)
-            
-            # Search for similar content in vector database
-            search_results = milvus_service.search_similar_text(query_embedding)
-            
-            # Get log details for results
-            enriched_results = []
-            for result in search_results:
-                log = storage.get_log(result["logId"])
-                enriched_results.append({
-                    "logId": result["logId"],
-                    "filename": log["filename"] if log else "Unknown",
-                    "text": result["text"],
-                    "score": result["score"],
-                    "relevance": "high" if result["score"] > 0.8 else "medium" if result["score"] > 0.6 else "low"
-                })
-            
-            summary = llm_service.semantic_search(query, [r["text"] for r in search_results])
-            
-            return jsonify({
-                "results": enriched_results,
-                "summary": summary
-            })
-        
-        except Exception as e:
-            # Fall back to basic search if vector search fails
-            logs = storage.get_all_logs()
-            results = []
-            
-            for log in logs:
-                if query.lower() in log["originalContent"].lower():
-                    results.append({
-                        "logId": log["id"],
-                        "filename": log["filename"],
-                        "text": log["originalContent"][:200] + "...",
-                        "score": 0.5,  # Default score for basic search
-                        "relevance": "medium"
-                    })
-            
-            return jsonify({
-                "results": results[:10],  # Limit to 10 results
-                "summary": f"Found {len(results)} logs containing '{query}'"
+    data = request.json
+    query = data.get('query', '')
+    
+    if not query:
+        return jsonify({"error": "Query is required"}), 400
+    
+    # Mock search results for now
+    # In a real app, this would use vector embeddings
+    search_results = []
+    for log in logs_data:
+        if query.lower() in log.get("content", "").lower():
+            search_results.append({
+                "logId": log["id"],
+                "filename": log["filename"],
+                "uploadDate": log["uploadDate"],
+                "relevance": 0.85,  # Mock relevance score
+                "snippet": log["content"][:200]
             })
     
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(search_results)
 
 @app.route('/api/analysis/<int:analysis_id>/status', methods=['PATCH'])
 def update_status(analysis_id):
     """Update resolution status"""
-    try:
-        data = request.json
-        status = data.get('status')
-        
-        if not status or status not in ['pending', 'in_progress', 'resolved']:
-            return jsonify({"error": "Invalid status"}), 400
-        
-        result = storage.update_resolution_status(analysis_id, status)
-        if not result:
-            return jsonify({"error": "Analysis not found"}), 404
-        
-        # Create activity record
-        activity_data = {
-            "logId": result["logId"],
-            "activityType": "status_change",
-            "description": f"Analysis status changed to '{status}'",
-            "status": "completed"
-        }
-        storage.create_activity(activity_data)
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/pcap/upload', methods=['POST'])
-def upload_pcap():
-    """Upload a PCAP file for analysis"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-        
-        file = request.files['file']
-        if not file.filename:
-            return jsonify({"error": "No file selected"}), 400
-        
-        # Check file extension
-        if not file.filename.lower().endswith(('.pcap', '.pcapng', '.cap')):
-            return jsonify({"error": "Invalid file format. Only PCAP files are supported."}), 400
-        
-        # Save file to disk temporarily
-        filename = str(uuid.uuid4()) + '_' + file.filename
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(file_path)
-        
-        # Create log record for PCAP
-        pcap_data = {
-            "filename": file.filename,
-            "originalContent": f"PCAP file saved at {file_path}",
-            "fileSize": os.path.getsize(file_path),
-            "processingStatus": "pending",
-            "fileType": "pcap"
-        }
-        
-        pcap_log = storage.create_log(pcap_data)
-        
-        # Create activity record
-        activity_data = {
-            "logId": pcap_log["id"],
-            "activityType": "upload",
-            "description": f"PCAP file '{file.filename}' uploaded",
-            "status": "completed"
-        }
-        storage.create_activity(activity_data)
-        
-        # Start processing in background
-        threading.Thread(target=process_pcap_file, args=(pcap_log["id"], file_path)).start()
-        
-        return jsonify({"id": pcap_log["id"], "message": "PCAP file uploaded successfully"})
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/pcap/<int:pcap_id>/analysis', methods=['GET'])
-def get_pcap_analysis(pcap_id):
-    """Get PCAP analysis results"""
-    try:
-        analysis = storage.get_analysis_result_by_log_id(pcap_id)
-        if not analysis:
-            return jsonify({"error": "PCAP analysis not found"}), 404
-        
-        # For PCAP analysis, include additional telecom protocol info
-        if "pcapData" in analysis and "file_path" in analysis["pcapData"]:
-            file_path = analysis["pcapData"]["file_path"]
-            if os.path.exists(file_path):
-                telecom_stats = pcap_analyzer.extract_telecom_protocols(file_path)
-                analysis["telecomStats"] = telecom_stats
-        
-        return jsonify(analysis)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    data = request.json
+    new_status = data.get('status')
+    
+    if not new_status:
+        return jsonify({"error": "Status is required"}), 400
+    
+    for result in analysis_results:
+        if result["id"] == analysis_id:
+            result["resolutionStatus"] = new_status
+            
+            # Update stats
+            if new_status == "resolved":
+                stats["issuesResolved"] += 1
+                stats["pendingIssues"] = max(0, stats["pendingIssues"] - 1)
+            
+            # Add activity
+            activities.append({
+                "id": len(activities) + 1,
+                "type": "status",
+                "description": f"Updated status of analysis #{analysis_id} to {new_status}",
+                "timestamp": datetime.now().isoformat(),
+                "user": "system"
+            })
+            
+            return jsonify(result)
+    
+    return jsonify({"error": "Analysis not found"}), 404
 
 @app.route('/api/logs/<int:log_id>/root-cause-analysis', methods=['GET'])
 def get_root_cause_analysis(log_id):
     """Get root cause analysis for a log"""
-    try:
-        log = storage.get_log(log_id)
-        if not log:
-            return jsonify({"error": "Log not found"}), 404
-        
-        analysis = storage.get_analysis_result_by_log_id(log_id)
-        if not analysis:
-            return jsonify({"error": "Analysis not found"}), 404
-        
-        # Perform deeper root cause analysis using LLM
-        content = log.get("originalContent", "")
-        issues = analysis.get("issues", [])
-        
-        root_causes = llm_service.perform_root_cause_analysis(content, issues)
-        
-        return jsonify(root_causes)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # For now, return a mock root cause analysis
+    # In a real app, this would use an LLM
+    for log in logs_data:
+        if log["id"] == log_id:
+            return jsonify({
+                "logId": log_id,
+                "timestamp": datetime.now().isoformat(),
+                "primaryCause": "Configuration issue in network device",
+                "contributingFactors": [
+                    "Outdated firmware version",
+                    "Incompatible protocol settings",
+                    "High network congestion"
+                ],
+                "confidenceScore": 0.85,
+                "relationshipMap": {
+                    "nodes": [
+                        {"id": "root", "label": "Network Failure", "type": "issue"},
+                        {"id": "factor1", "label": "Outdated Firmware", "type": "cause"},
+                        {"id": "factor2", "label": "Protocol Mismatch", "type": "cause"},
+                        {"id": "factor3", "label": "Network Congestion", "type": "symptom"}
+                    ],
+                    "links": [
+                        {"source": "root", "target": "factor1", "value": 0.8},
+                        {"source": "root", "target": "factor2", "value": 0.7},
+                        {"source": "factor2", "target": "factor3", "value": 0.6}
+                    ]
+                }
+            })
+    
+    return jsonify({"error": "Log not found"}), 404
 
-@app.route('/api/prediction/potential-issues', methods=['GET'])
-def predict_potential_issues():
-    """Predict potential issues based on current log patterns"""
-    try:
-        # Get all logs
-        logs = storage.get_all_logs()
-        
-        # Extract content from the most recent logs
-        recent_logs_content = []
-        for log in logs[:5]:  # Use the 5 most recent logs
-            if log.get("fileType") != "pcap":  # Skip PCAP files
-                recent_logs_content.append(log.get("originalContent", ""))
-        
-        # Use LLM to predict potential issues
-        predictions = llm_service.predict_potential_issues(recent_logs_content)
-        
-        return jsonify(predictions)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# Add additional API routes as needed
 
-@app.route('/api/logs/<int:log_id>/timeline', methods=['GET'])
-def get_log_timeline(log_id):
-    """Get timeline analysis for a specific log"""
-    try:
-        log = storage.get_log(log_id)
-        if not log:
-            return jsonify({"error": "Log not found"}), 404
-        
-        # Extract and analyze timeline events
-        timeline_events = log_parser.extract_timestamps(log.get("originalContent", ""))
-        
-        # Analyze events for significance
-        enriched_timeline = llm_service.analyze_timeline_events(timeline_events, log_id)
-        
-        return jsonify(enriched_timeline)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/issues/<int:issue_id>/remediation', methods=['GET'])
-def get_remediation_steps(issue_id):
-    """Get detailed remediation steps for an issue"""
-    try:
-        # Find the analysis result containing this issue
-        analysis_results = storage.get_all_analysis_results()
-        target_analysis = None
-        target_issue = None
-        
-        for analysis in analysis_results:
-            for issue in analysis.get("issues", []):
-                if issue.get("id") == issue_id:
-                    target_analysis = analysis
-                    target_issue = issue
-                    break
-            if target_analysis:
-                break
-        
-        if not target_issue:
-            return jsonify({"error": "Issue not found"}), 404
-        
-        # Get the associated log
-        log = storage.get_log(target_analysis.get("logId"))
-        if not log:
-            return jsonify({"error": "Associated log not found"}), 404
-        
-        # Generate remediation steps
-        remediation = llm_service.generate_remediation_steps(target_issue, log.get("originalContent", ""))
-        
-        return jsonify(remediation)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/natural-language-query', methods=['POST'])
-def natural_language_query():
-    """Process natural language queries about log data"""
-    try:
-        query = request.json.get('query')
-        if not query:
-            return jsonify({"error": "No query provided"}), 400
-        
-        # Get all logs for context
-        logs = storage.get_all_logs()
-        log_contents = [log.get('originalContent', '') for log in logs if log.get("fileType") != "pcap"]
-        
-        # Process the natural language query
-        result = llm_service.process_natural_language_query(query, log_contents)
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/issues/<int:issue_id>/feedback', methods=['POST'])
-def submit_resolution_feedback(issue_id):
-    """Submit feedback on resolution steps"""
-    try:
-        data = request.json
-        was_successful = data.get('wasSuccessful')
-        feedback = data.get('feedback', '')
-        steps = data.get('steps', [])
-        
-        if was_successful is None:
-            return jsonify({"error": "Missing required field: wasSuccessful"}), 400
-        
-        # Store feedback
-        storage.store_resolution_feedback(issue_id, steps, was_successful, feedback)
-        
-        # Update the model with feedback if successful
-        if was_successful:
-            # Get the log content for the issue
-            analysis = storage.get_analysis_result(issue_id)
-            if analysis and "logId" in analysis:
-                log = storage.get_log(analysis["logId"])
-                if log:
-                    # Prepare feedback for fine-tuning
-                    resolution_data = {
-                        "issueId": issue_id,
-                        "log_content": log.get("originalContent", ""),
-                        "issues": analysis.get("issues", []),
-                        "resolution": {
-                            "steps": steps,
-                            "summary": feedback,
-                            "category": "user_feedback"
-                        },
-                        "was_successful": was_successful,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                    
-                    # Start fine-tuning with this feedback
-                    training_result = llm_service.train_on_resolution_history([resolution_data])
-                    
-                    # Log the training result
-                    print(f"Training result: {training_result}")
-            else:
-                # Fallback to the original method if we can't find the log
-                llm_service.train_on_resolution_history(storage.get_resolution_feedback())
-        
-        # Create activity record
-        activity_data = {
-            "activityType": "feedback",
-            "description": f"Resolution feedback submitted: {'Successful' if was_successful else 'Unsuccessful'}",
-            "status": "completed"
-        }
-        storage.create_activity(activity_data)
-        
-        return jsonify({"message": "Feedback submitted successfully"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+# Function to process log file (simulated background task)
 def process_log_file(log_id, content):
     """Process log file in background"""
-    try:
-        # Update log status
-        storage.update_log_status(log_id, "processing")
-        
-        # Create activity
-        activity_data = {
-            "logId": log_id,
-            "activityType": "processing",
-            "description": "Log processing started",
-            "status": "in_progress"
-        }
-        activity = storage.create_activity(activity_data)
-        
-        # Analyze log with LLM
-        analysis_result = llm_service.analyze_log(content)
-        
-        # Store analysis result
-        result_data = {
-            "logId": log_id,
-            "issues": analysis_result["issues"],
-            "recommendations": analysis_result["recommendations"],
-            "summary": analysis_result["summary"],
-            "severity": analysis_result["severity"],
-            "resolutionStatus": "pending"
-        }
-        analysis = storage.create_analysis_result(result_data)
-        
-        # Segment log for embedding
-        segments = log_parser.segment_log_for_embedding(content)
-        
-        try:
-            # Generate embeddings
-            embeddings = llm_service.generate_embeddings(segments)
-            
-            # Store embeddings in Milvus
-            embedding_data = []
-            for i, (segment, embedding) in enumerate(zip(segments, embeddings)):
-                embedding_data.append({
-                    "text": segment,
-                    "embedding": embedding
-                })
-            
-            milvus_service.insert_embeddings(log_id, embedding_data)
-            
-            # Update log status
-            storage.update_log_status(log_id, "completed")
-        except Exception as e:
-            # If vector embedding fails, we still have the analysis
-            print(f"Embedding generation failed: {str(e)}")
-            storage.update_log_status(log_id, "completed_without_vectors")
-        
-        # Update activity
-        activity_data = {
-            "logId": log_id,
-            "activityType": "analysis",
-            "description": "Log analysis completed",
-            "status": "completed"
-        }
-        storage.create_activity(activity_data)
-        
-    except Exception as e:
-        print(f"Error processing log: {str(e)}")
-        # Update log status to error
-        storage.update_log_status(log_id, "error")
-        
-        # Update activity
-        activity_data = {
-            "logId": log_id,
-            "activityType": "error",
-            "description": f"Error processing log: {str(e)}",
-            "status": "error"
-        }
-        storage.create_activity(activity_data)
-
-def process_pcap_file(pcap_id, file_path):
-    """Process PCAP file in background"""
-    try:
-        # Update log status
-        storage.update_log_status(pcap_id, "processing")
-        
-        # Create activity
-        activity_data = {
-            "logId": pcap_id,
-            "activityType": "processing",
-            "description": "PCAP analysis started",
-            "status": "in_progress"
-        }
-        storage.create_activity(activity_data)
-        
-        # Analyze PCAP file
-        try:
-            pcap_analysis = pcap_analyzer.analyze_pcap(file_path)
-            
-            # Generate a human-readable summary
-            summary = pcap_analyzer.generate_pcap_summary(file_path, pcap_analysis)
-            
-            # Analyze the summary with LLM for recommendations
-            llm_analysis = llm_service.analyze_log(summary)
-            
-            # Store telecom-specific stats
-            telecom_stats = pcap_analyzer.extract_telecom_protocols(file_path)
-            
-            # Store analysis result
-            result_data = {
-                "logId": pcap_id,
-                "issues": llm_analysis["issues"],
-                "recommendations": llm_analysis["recommendations"],
-                "summary": llm_analysis["summary"],
-                "severity": llm_analysis["severity"],
-                "resolutionStatus": "pending",
-                "pcapData": {
-                    "file_path": file_path,
-                    "basic_stats": pcap_analysis["basic_stats"],
-                    "protocol_stats": pcap_analysis["protocol_stats"],
-                    "anomalies": pcap_analysis["anomalies"]
-                }
-            }
-            analysis = storage.create_analysis_result(result_data)
-            
-            # Update log status
-            storage.update_log_status(pcap_id, "completed")
-            
-            # Update activity
-            activity_data = {
-                "logId": pcap_id,
-                "activityType": "analysis",
-                "description": "PCAP analysis completed",
-                "status": "completed"
-            }
-            storage.create_activity(activity_data)
-            
-        except Exception as e:
-            print(f"Error analyzing PCAP: {str(e)}")
-            # Store error analysis result
-            result_data = {
-                "logId": pcap_id,
-                "issues": [{
-                    "title": "PCAP Analysis Error",
-                    "description": f"Error analyzing PCAP file: {str(e)}",
-                    "severity": "high",
-                    "firstOccurrence": datetime.now().isoformat(),
-                    "status": "pending"
-                }],
-                "recommendations": [{
-                    "title": "Try Different File Format",
-                    "description": "Try converting the PCAP file to a different format or check if it's corrupted.",
-                    "category": "other",
-                    "isAutomaticallyResolved": False
-                }],
-                "summary": f"Failed to analyze PCAP file: {str(e)}",
-                "severity": "high",
-                "resolutionStatus": "pending"
-            }
-            storage.create_analysis_result(result_data)
-            
-            # Update log status
-            storage.update_log_status(pcap_id, "error")
-            
-            # Update activity
-            activity_data = {
-                "logId": pcap_id,
-                "activityType": "error",
-                "description": f"Error analyzing PCAP: {str(e)}",
-                "status": "error"
-            }
-            storage.create_activity(activity_data)
+    # In a real app, this would be a celery task or similar
+    # For now, we'll simulate processing delay
+    time.sleep(1)
     
-    except Exception as e:
-        print(f"Error processing PCAP: {str(e)}")
-        # Update log status to error
-        storage.update_log_status(pcap_id, "error")
-        
-        # Update activity
-        activity_data = {
-            "logId": pcap_id,
-            "activityType": "error",
-            "description": f"Error processing PCAP: {str(e)}",
-            "status": "error"
-        }
-        storage.create_activity(activity_data)
-
-# Fine-tuning API endpoints
-@app.route('/api/fine-tuning/jobs', methods=['GET'])
-def get_fine_tuning_jobs():
-    """Get all fine-tuning jobs"""
-    try:
-        result = llm_service.list_fine_tuning_jobs()
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/fine-tuning/jobs/<string:job_id>', methods=['GET'])
-def get_fine_tuning_job(job_id):
-    """Get a specific fine-tuning job"""
-    try:
-        result = llm_service.get_fine_tuning_status(job_id)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/fine-tuning/models', methods=['GET'])
-def get_fine_tuned_models():
-    """Get all fine-tuned models"""
-    try:
-        result = llm_service.get_fine_tuned_models()
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/fine-tuning/jobs', methods=['POST'])
-def start_fine_tuning_job():
-    """Start a new fine-tuning job"""
-    try:
-        data = request.json
-        
-        # Validate required fields
-        if not data.get("dataset_id"):
-            return jsonify({"error": "Dataset ID is required"}), 400
-        
-        # Start fine-tuning job
-        dataset_id = data.get("dataset_id")
-        model_name = data.get("model_name", "llama-3.1-8b-local")
-        config = data.get("config", None)
-        
-        job_info = fine_tuning_service.start_fine_tuning(
-            dataset_id=dataset_id,
-            model_name=model_name,
-            config=config
-        )
-        
-        return jsonify({
-            "status": "success",
-            "message": "Fine-tuning job started",
-            "job_info": job_info
+    # Update log status
+    for log in logs_data:
+        if log["id"] == log_id:
+            log["status"] = "analyzed"
+            break
+    
+    # Create analysis result
+    analysis_id = len(analysis_results) + 1
+    
+    # Simple mock analysis (in a real app, this would use an LLM)
+    mock_issues = []
+    if "error" in content.lower():
+        mock_issues.append({
+            "id": 1,
+            "type": "error",
+            "description": "Network connectivity error detected",
+            "severity": "high",
+            "timestamp": datetime.now().isoformat(),
+            "occurrences": 3,
+            "status": "open"
         })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/fine-tuning/datasets', methods=['POST'])
-def create_fine_tuning_dataset():
-    """Create a new fine-tuning dataset from logs and their analyses"""
-    try:
-        data = request.json
-        
-        # Validate required fields
-        if not data.get("log_ids") or not data.get("dataset_name"):
-            return jsonify({"error": "Log IDs and dataset name are required"}), 400
-        
-        log_ids = data.get("log_ids")
-        dataset_name = data.get("dataset_name")
-        
-        # Get logs and their analyses
-        log_contents = []
-        analysis_results = []
-        
-        for log_id in log_ids:
-            log = storage.get_log(log_id)
-            analysis = storage.get_analysis_result_by_log_id(log_id)
-            
-            if log and analysis:
-                log_contents.append(log.get("originalContent", ""))
-                analysis_results.append(analysis)
-        
-        if not log_contents or not analysis_results:
-            return jsonify({"error": "No valid logs or analyses found"}), 400
-        
-        # Create dataset
-        dataset_info = fine_tuning_service.prepare_dataset_from_logs(
-            log_contents=log_contents,
-            analysis_results=analysis_results,
-            dataset_name=dataset_name
-        )
-        
-        return jsonify({
-            "status": "success",
-            "message": "Dataset created successfully",
-            "dataset_info": dataset_info
+    
+    if "warning" in content.lower():
+        mock_issues.append({
+            "id": 2,
+            "type": "warning",
+            "description": "Potential memory leak in application",
+            "severity": "medium",
+            "timestamp": datetime.now().isoformat(),
+            "occurrences": 5,
+            "status": "open"
         })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    
+    result = {
+        "id": analysis_id,
+        "logId": log_id,
+        "timestamp": datetime.now().isoformat(),
+        "issues": mock_issues,
+        "summary": "Analysis completed with 2 potential issues identified",
+        "resolutionStatus": "pending",
+        "processingTime": "1.2s"
+    }
+    
+    analysis_results.append(result)
+    
+    # Update stats
+    stats["analyzedLogs"] += 1
+    stats["pendingIssues"] += len(mock_issues)
+    
+    # Add activity
+    activities.append({
+        "id": len(activities) + 1,
+        "type": "analysis",
+        "description": f"Completed analysis of log #{log_id}",
+        "timestamp": datetime.now().isoformat(),
+        "user": "system"
+    })
+    
+    # Later this could generate embeddings for vector search
 
-@app.route('/api/fine-tuning/jobs/<string:job_id>/simulate', methods=['POST'])
-def simulate_job_completion(job_id):
-    """Simulate the completion of a fine-tuning job (for development)"""
-    try:
-        data = request.json
-        success = data.get("success", True)
-        
-        updated_job = fine_tuning_service.simulate_job_completion(job_id, success)
-        if not updated_job:
-            return jsonify({"error": "Job not found"}), 404
-        
-        return jsonify({
-            "status": "success",
-            "message": f"Job {job_id} simulation completed",
-            "job_info": updated_job
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# Serve React frontend
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    """Serve React frontend"""
+    if path and Path(app.static_folder + '/' + path).exists():
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)
