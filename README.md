@@ -13,27 +13,63 @@ A telecom log analysis platform that provides intelligent, semantic search capab
 
 ## Setup Instructions
 
-The platform can run in a hybrid mode with ReactJS frontend and Python backend.
+The platform can run in a hybrid mode with ReactJS frontend and Python backend. The application supports storing data (models, Milvus configuration, volumes) outside the project directory.
 
-### 1. Download Required Models
+### 1. Set Up Data Directory
+
+By default, the application will create necessary data directories (models, Milvus config, volumes) one level up from the project directory:
 
 ```bash
+./setup_data_folder.sh
+```
+
+This creates a structure like:
+```
+/parent_directory/
+  ├── data/                 # External data directory
+  │   ├── models/gguf/      # LLM models
+  │   ├── milvus-config/    # Milvus configuration
+  │   └── volumes/          # Data volumes
+  │       ├── etcd/
+  │       ├── minio/
+  │       └── milvus/
+  └── your_project/         # Project directory
+```
+
+### 2. Download Required Models
+
+Download models to the external data directory:
+
+```bash
+# Using the default external path (../data/models)
 ./download_models.sh
+
+# Or specify a custom path
+MODELS_PATH="/path/to/models" ./download_models.sh
 ```
 
-### 2. Set Up Milvus (Vector Database)
+### 3. Set Up Milvus (Vector Database)
 
 ```bash
+# Using the default external paths
 ./setup_milvus.sh
-cd milvus-config && docker-compose up -d
+cd ../data/milvus-config && docker-compose up -d
+
+# Or specify custom paths
+MILVUS_CONFIG_PATH="/path/to/milvus-config" VOLUMES_PATH="/path/to/volumes" ./setup_milvus.sh
+cd /path/to/milvus-config && docker-compose up -d
 ```
 
-### 3. Start the LLM Server
+### 4. Start the LLM Server
 
 The LLM server uses llama-cpp-python to run the Mistral-7B model locally:
 
 ```bash
+# Using the default external path
 ./start_llm_server.sh
+
+# Or specify a custom path
+MODELS_PATH="/path/to/models" ./start_llm_server.sh
 ```
 
 ### 4. Start the Main Application
@@ -82,6 +118,37 @@ The application can be deployed in various environments:
 1. **Production with Docker**: Use the included docker-compose files
 2. **CPU-Only Mode**: Use the deploy_cpu.sh script
 3. **GPU Mode**: Use the deploy.sh script for environments with GPU support
+
+### External Data Storage in Production
+
+For production deployments, it's recommended to store data directories outside the project folder:
+
+```bash
+# Create the external data directory structure
+./setup_data_folder.sh
+
+# Download models to external data directory
+./download_models.sh
+
+# Setup Milvus with external configuration and volumes
+./setup_milvus.sh
+
+# Start services with environment variables pointing to external paths
+export MODELS_PATH="../data/models"
+export MILVUS_CONFIG_PATH="../data/milvus-config"
+export VOLUMES_PATH="../data/volumes"
+
+# Start Milvus
+cd ../data/milvus-config && docker-compose up -d
+
+# Start the LLM server
+./start_llm_server.sh
+
+# Start the application
+npm run dev  # or python run_python_backend.py
+```
+
+This approach keeps large data files and database volumes separate from the application code, making backups, version control, and deployments cleaner.
 
 ## Important Notes
 

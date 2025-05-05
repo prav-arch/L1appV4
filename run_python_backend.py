@@ -45,18 +45,34 @@ def check_and_install_requirements():
 
 def ensure_directory_structure():
     """Ensure Python backend directory structure exists"""
-    directories = [
+    # Project directories
+    project_directories = [
         "python_backend",
         "python_backend/services",
-        "uploads",
-        "data",
-        "data/fine_tuning"
+        "uploads"
     ]
     
-    for directory in directories:
+    # External data directories (one level up from project)
+    external_data_dir = Path("../data")
+    data_subdirectories = [
+        "models/gguf",
+        "milvus-config",
+        "volumes/etcd",
+        "volumes/minio",
+        "volumes/milvus",
+        "fine_tuning"
+    ]
+    
+    # Create project directories
+    for directory in project_directories:
         Path(directory).mkdir(parents=True, exist_ok=True)
-        
-    print("✓ Directory structure verified")
+    
+    # Create external data directories
+    for subdir in data_subdirectories:
+        (external_data_dir / subdir).mkdir(parents=True, exist_ok=True)
+    
+    print("✓ Project directory structure verified")
+    print(f"✓ External data directory created at: {external_data_dir.resolve()}")
     return True
 
 def main():
@@ -91,6 +107,16 @@ def main():
     os.environ["FLASK_ENV"] = "development"
     os.environ["FLASK_RUN_HOST"] = "0.0.0.0"
     os.environ["FLASK_RUN_PORT"] = "5001"
+    
+    # Set data directory environment variables
+    external_data_dir = Path("../data").resolve()
+    os.environ["MODELS_PATH"] = str(external_data_dir / "models")
+    os.environ["MILVUS_CONFIG_PATH"] = str(external_data_dir / "milvus-config")
+    os.environ["VOLUMES_PATH"] = str(external_data_dir / "volumes")
+    print(f"✓ Using external data directory: {external_data_dir}")
+    print(f"  - Models path: {os.environ['MODELS_PATH']}")
+    print(f"  - Milvus config path: {os.environ['MILVUS_CONFIG_PATH']}")
+    print(f"  - Volumes path: {os.environ['VOLUMES_PATH']}")
     
     # Start the Flask server
     try:
